@@ -1,24 +1,4 @@
 // backend/routes/auth.route.js
-// const express = require('express');
-// const router = express.Router();
-// const {asyncHandler} = require('../utils/asyncHandler');
-// const {registerUser, loginUser, logoutUser, loginWithRefreshToken,getCurrentUser} = require('../controllers/auth.contorller');  
-
-// @route   POST /api/users/refresh
-// @desc    Login with refresh token
-// @access  Public
-
-// const { verifyJWT } = require('../middleware/auth.middleware');
-
-// router.post('/register', asyncHandler(registerUser));
-// router.post('/login', asyncHandler(loginUser));
-// router.post('/logout', verifyJWT, asyncHandler(logoutUser));
-
-// router.get('/me', verifyJWT, asyncHandler(getCurrentUser));
-// router.post('/refresh', asyncHandler(loginWithRefreshToken));
-
-// module.exports = router;
-
 const express = require('express');
 const router = express.Router();
 const { asyncHandler } = require('../utils/asyncHandler');
