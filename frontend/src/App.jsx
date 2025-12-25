@@ -53,7 +53,7 @@ function App() {
           />
 
 
-          <Route path="*" element={<Login />} />
+          <Route path="*" element={<Dashboard />} />
         </Routes>
       </AuthProvider>
     </BrowserRouter>
