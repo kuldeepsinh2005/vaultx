@@ -1,3 +1,4 @@
+// frontend/src/App.jsx
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
 
@@ -6,6 +7,7 @@ import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
 import ProtectedRoute from "./components/ProtectedRoute";
 import PublicRoute from "./components/PublicRoute";
+import MyFiles from "./pages/MyFiles";
 
 function App() {
   return (
@@ -41,6 +43,15 @@ function App() {
               </ProtectedRoute>
             }
           />
+          <Route
+            path="/files"
+            element={
+              <ProtectedRoute>
+                <MyFiles />
+              </ProtectedRoute>
+            }
+          />
+
 
           <Route path="*" element={<Login />} />
         </Routes>
