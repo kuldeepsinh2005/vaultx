@@ -3,6 +3,8 @@ import React, { useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useNavigate, Navigate, Link } from "react-router-dom";
 import { Mail, Lock, User, ArrowRight, ChevronLeft, ShieldCheck, KeyRound } from "lucide-react";
+import { generateKeyPair, exportPublicKey } from "../utils/keypair";
+import { encryptPrivateKey } from "../utils/privateKeyBackup";
 
 // Importing the reusable UI elements we created
 import { Card } from "../components/ui/Card";
@@ -70,28 +72,69 @@ const Register = () => {
     e.preventDefault();
     setError("");
     setMessage("");
+
     if (!formData.code) {
       setError("Please enter the verification code");
       return;
     }
 
     setLoading(true);
+
     try {
+      // 1️⃣ Generate keypair ONCE
+      const keyPair = await generateKeyPair();
+
+      // 2️⃣ Export public key
+      const publicKey = await exportPublicKey(keyPair.publicKey);
+
+      // 3️⃣ Encrypt private key with password
+      const encryptedPrivateKey = await encryptPrivateKey(
+        keyPair.privateKey,
+        formData.password
+      );
+
+      // 4️⃣ Download backup (recovery only)
+      const blob = new Blob(
+        [JSON.stringify(encryptedPrivateKey, null, 2)],
+        { type: "application/json" }
+      );
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "vaultx-private-key-backup.json";
+      a.click();
+      URL.revokeObjectURL(url);
+
+      // 5️⃣ Verify email + store encrypted private key
       const res = await api.post("/auth/verify-email", {
         email: formData.email,
         code: formData.code,
+        encryptedPrivateKey,
       });
-      if (res.data.success) {
-        setMessage("Email verified and registration complete!");
-        await login(formData.email, formData.password);
-        navigate("/dashboard");
+
+      if (!res.data.success) {
+        throw new Error("Verification failed");
       }
+
+      // 6️⃣ Store public key
+      await api.post("/keys/public", { publicKey });
+
+      // 7️⃣ Auto-login
+      await login(formData.email, formData.password,true);
+
+      setMessage("Account created successfully 🔐");
+      navigate("/dashboard");
+
     } catch (err) {
+      console.error(err);
       setError(err.response?.data?.error || "Verification failed");
     } finally {
       setLoading(false);
     }
   };
+
+
+  
   // --- LOGIC END ---
 
   return (

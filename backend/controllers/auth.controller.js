@@ -63,7 +63,7 @@ exports.requestEmailVerification = async (req, res, next) => {
 // Step 2: Verify email & complete registration
 exports.verifyEmailAndRegister = async (req, res, next) => {
   try {
-    const { email, code } = req.body;
+    const { email, code, encryptedPrivateKey  } = req.body;
 
     const user = await User.findOne({ email, emailVerificationCode: code });
     if (!user) return res.status(400).json({ error: 'Invalid code' });
@@ -82,6 +82,15 @@ exports.verifyEmailAndRegister = async (req, res, next) => {
     res.cookie('accessToken', accessToken, { httpOnly: true, maxAge: 24*60*60*1000 });
     res.cookie('refreshToken', refreshToken, { httpOnly: true, maxAge: 10*24*60*60*1000 });
 
+    user.encryptedPrivateKey = encryptedPrivateKey;
+    await user.save();
+
+    if (!encryptedPrivateKey) {
+      return res.status(400).json({ error: "Missing encrypted private key" });
+    }
+
+    
+        
     res.status(201).json({
       success: true,
       user: {

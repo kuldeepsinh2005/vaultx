@@ -71,3 +71,74 @@ export async function decryptFile(encryptedBlob, aesKey) {
   return decrypted;
 }
 
+// Encrypt (wrap) AES key using RSA public key
+export async function wrapAESKeyWithPublicKey(aesKey, publicKeyBase64) {
+  const rawAES = await crypto.subtle.exportKey("raw", aesKey);
+
+  const publicKeyBytes = Uint8Array.from(
+    atob(publicKeyBase64),
+    (c) => c.charCodeAt(0)
+  );
+
+  const publicKey = await crypto.subtle.importKey(
+    "spki",
+    publicKeyBytes,
+    {
+      name: "RSA-OAEP",
+      hash: "SHA-256",
+    },
+    false,
+    ["encrypt"]
+  );
+
+  const wrappedKey = await crypto.subtle.encrypt(
+    { name: "RSA-OAEP" },
+    publicKey,
+    rawAES
+  );
+
+ return base64UrlEncode(new Uint8Array(wrappedKey));
+
+}
+
+// Decrypt (unwrap) AES key using RSA private key
+export async function unwrapAESKeyWithPrivateKey(
+  wrappedKeyBase64,
+  privateKey
+) {
+  const wrappedKey = base64UrlDecode(wrappedKeyBase64);
+
+  const rawAES = await crypto.subtle.decrypt(
+    { name: "RSA-OAEP" },
+    privateKey,
+    wrappedKey
+  );
+
+  return crypto.subtle.importKey(
+    "raw",
+    rawAES,
+    { name: "AES-GCM" },
+    false,
+    ["decrypt"]
+  );
+}
+
+
+function base64UrlEncode(bytes) {
+  return btoa(String.fromCharCode(...bytes))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+function base64UrlDecode(base64Url) {
+  let base64 = base64Url
+    .replace(/-/g, "+")
+    .replace(/_/g, "/");
+
+  while (base64.length % 4) {
+    base64 += "=";
+  }
+
+  return Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+}

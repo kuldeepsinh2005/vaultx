@@ -29,10 +29,11 @@ const FileSchema = new mongoose.Schema({
     required: true,
   },
 
-  encryptedKey: {
-    type: String, // base64
+  wrappedKey: {
+    type: String,
     required: true,
   },
+
 }, { timestamps: true });
 
 module.exports = mongoose.model("File", FileSchema);

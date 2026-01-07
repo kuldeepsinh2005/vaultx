@@ -1,5 +1,5 @@
 import { useAuth } from "../context/AuthContext";
-import { generateAESKey, encryptFile, exportAESKey } from "../utils/crypto";
+import { generateAESKey, encryptFile, wrapAESKeyWithPublicKey } from "../utils/crypto";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 // Icons
@@ -32,17 +32,34 @@ const Dashboard = () => {
     setStatus({ type: "info", text: "Encrypting file locally..." });
 
     try {
+      // 1. Generate AES key
       const aesKey = await generateAESKey();
+
+      // 2. Encrypt file
       const { encryptedBuffer, iv } = await encryptFile(file, aesKey);
-      const encryptedKey = await exportAESKey(aesKey);
-      const encryptedBlob = new Blob([iv, new Uint8Array(encryptedBuffer)]);
+
+      // 3. Fetch user's public key
+      const userRes = await api.get("/auth/me");
+      const publicKey = userRes.data.user.publicKey;
+
+      // 4. Wrap AES key using public key
+      const wrappedKey = await wrapAESKeyWithPublicKey(
+        aesKey,
+        publicKey
+      );
+
+      // 5. Create encrypted blob
+      const encryptedBlob = new Blob([
+        iv,
+        new Uint8Array(encryptedBuffer),
+      ]);
 
       const formData = new FormData();
       formData.append("file", encryptedBlob, file.name);
-      formData.append("encryptedKey", encryptedKey);
+      formData.append("wrappedKey", wrappedKey);
 
-      setStatus({ type: "info", text: "Uploading to VaultX..." });
       await api.post("/files/upload", formData);
+
 
       setStatus({ type: "success", text: "File protected & uploaded successfully!" });
       setFile(null);

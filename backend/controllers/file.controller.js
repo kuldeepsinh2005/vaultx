@@ -5,10 +5,10 @@ const path = require("path");
 // Upload encrypted file
 exports.uploadFile = async (req, res) => {
   try {
-    const { encryptedKey } = req.body;
+    const { wrappedKey } = req.body;
 
-    if (!req.file || !encryptedKey) {
-      return res.status(400).json({ error: "Missing file or key" });
+    if (!req.file || !wrappedKey) {
+      return res.status(400).json({ error: "Missing file or wrapped key" });
     }
 
     const fileDoc = await File.create({
@@ -17,8 +17,9 @@ exports.uploadFile = async (req, res) => {
       mimeType: req.file.mimetype,
       size: req.file.size,
       storagePath: req.file.path,
-      encryptedKey,
+      wrappedKey,
     });
+
 
     res.status(201).json({
       success: true,
@@ -34,7 +35,7 @@ exports.uploadFile = async (req, res) => {
 exports.getMyFiles = async (req, res) => {
   try {
     const files = await File.find({ owner: req.user._id })
-      .select("_id originalName size createdAt encryptedKey");
+      .select("_id originalName size createdAt wrappedKey");
 
     res.status(200).json({
       success: true,

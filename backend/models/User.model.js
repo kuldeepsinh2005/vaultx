@@ -16,6 +16,16 @@ const UserSchema = new mongoose.Schema({
   verified: { type: Boolean, default: false },
   emailVerificationCode: { type: String },
   emailVerificationExpires: { type: Date, index: { expireAfterSeconds: 0 } },// 10 minutes expiry
+  publicKey: {
+    type: String, // Base64
+  },
+  encryptedPrivateKey: {
+    type: Object, // stores JSON backup object
+    required: false,
+  },
+
+
+
 }, {
   timestamps: true
 });

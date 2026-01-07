@@ -46,6 +46,8 @@ mongoose.connection.on('disconnected', () => logger.warn('Mongoose disconnected'
 // --- 4. Routes ---
 app.use('/api/auth', require('./routes/auth.route'));
 app.use('/api/files', require('./routes/file.route'));
+app.use("/api/keys", require("./routes/key.route"));
+app.use("/api/account", require("./routes/account.route"));
 
 
 // --- 6. Server Startup ---

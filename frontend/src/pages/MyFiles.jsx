@@ -1,8 +1,18 @@
 // frontend/src/pages/MyFiles.jsx
 import { useEffect, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { importAESKey, decryptFile } from "../utils/crypto";
-import { Link } from "react-router-dom";
+import { useKey } from "../context/KeyContext";
+
+import { 
+  importAESKey, 
+  decryptFile,  
+  unwrapAESKeyWithPrivateKey,
+} from "../utils/crypto";
+import {
+  decryptPrivateKey,
+} from "../utils/privateKeyBackup";
+
 import { 
   Loader2,
   Lock,
@@ -15,12 +25,18 @@ import {
 import Sidebar from "../components/layout/Sidebar";
 import Header from "../components/layout/Header";
 
+
+
 const MyFiles = () => {
   const { api } = useAuth();
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [decryptingId, setDecryptingId] = useState(null);
+  const { privateKey } = useKey();
+  const navigate = useNavigate();
+
+
 
   useEffect(() => {
     const fetchFiles = async () => {
@@ -37,30 +53,51 @@ const MyFiles = () => {
   }, [api]);
 
   const handleDownload = async (file) => {
-    setDecryptingId(file._id);
     try {
-      const res = await api.get(`/files/download/${file._id}`, {
-        responseType: "blob",
-      });
+      if (!privateKey) {
+        navigate("/unlock");
+        return;
+      }
 
-      const aesKey = await importAESKey(file.encryptedKey);
-      const decryptedBuffer = await decryptFile(res.data, aesKey);
-      // console.log(aesKey);
+      setDecryptingId(file._id);
+
+      // 1️⃣ Download encrypted file
+      const res = await api.get(
+        `/files/download/${file._id}`,
+        { responseType: "blob" }
+      );
+
+      // 2️⃣ Unwrap AES key
+      const aesKey = await unwrapAESKeyWithPrivateKey(
+        file.wrappedKey,
+        privateKey
+      );
+
+      // 3️⃣ Decrypt file
+      const decryptedBuffer = await decryptFile(
+        res.data,
+        aesKey
+      );
+
+      // 4️⃣ Download plaintext file
       const blob = new Blob([decryptedBuffer]);
-
       const url = URL.createObjectURL(blob);
+
       const a = document.createElement("a");
       a.href = url;
       a.download = file.originalName;
       a.click();
+
       URL.revokeObjectURL(url);
     } catch (err) {
       console.error(err);
-      alert("Decryption failed. The key may be corrupted.");
+      alert("Decryption failed");
     } finally {
       setDecryptingId(null);
     }
   };
+
+
 
   if (loading) {
     return (

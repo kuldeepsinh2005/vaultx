@@ -3,6 +3,8 @@
 import React, { createContext, useState, useEffect, useContext } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
+import { decryptPrivateKey } from "../utils/privateKeyBackup";
+import { useKey } from "./KeyContext";
 
 // Axios instance
 const api = axios.create({
@@ -16,8 +18,20 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
-
+  const { setPrivateKey } = useKey();
+  const { lock } = useKey();
   const navigate = useNavigate();
+
+  const unlockVaultWithPassword = async (encryptedPrivateKey, password) => {
+    if (!encryptedPrivateKey) return;
+
+    const privateKey = await decryptPrivateKey(
+      encryptedPrivateKey,
+      password
+    );
+
+    setPrivateKey(privateKey);
+  };
 
   // --- Axios response interceptor for automatic refresh ---
   useEffect(() => {
@@ -92,12 +106,21 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   // --- Login ---
-  const login = async (email, password) => {
+ const login = async (email, password, autoUnlock = false) => {
     try {
       const res = await api.post("/auth/login", { email, password });
+
       if (res.data.success && res.data.user) {
         setUser(res.data.user);
         setIsAuthenticated(true);
+
+        if (autoUnlock) {
+          await unlockVaultWithPassword(
+            res.data.user.encryptedPrivateKey,
+            password
+          );
+        }
+
         return true;
       }
       return false;
@@ -140,6 +163,7 @@ export const AuthProvider = ({ children }) => {
     } catch {
       // ignore
     } finally {
+      lock();   
       setUser(null);
       setIsAuthenticated(false);
       navigate("/login"); // redirect to login page
