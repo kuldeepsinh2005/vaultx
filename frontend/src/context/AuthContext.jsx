@@ -73,6 +73,10 @@ export const AuthProvider = ({ children }) => {
   // --- Check user session on mount ---
   useEffect(() => {
     const checkUserSession = async () => {
+      if (isAuthenticated && user) {
+        setLoading(false);
+        return;
+      }
       try {
         const res = await api.get("/auth/me");
         if (res.data?.user) {

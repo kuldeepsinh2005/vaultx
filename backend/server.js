@@ -48,6 +48,7 @@ app.use('/api/auth', require('./routes/auth.route'));
 app.use('/api/files', require('./routes/file.route'));
 app.use("/api/keys", require("./routes/key.route"));
 app.use("/api/account", require("./routes/account.route"));
+app.use("/api/folders", require("./routes/folder.route"));
 
 
 // --- 6. Server Startup ---

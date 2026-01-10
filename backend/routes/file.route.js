@@ -7,20 +7,11 @@ const {
   uploadFile,
   getMyFiles,
   downloadFile,
+  moveFile,
 } = require("../controllers/file.controller");
 
 // Storage config
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, "uploads/");
-  },
-  filename: (req, file, cb) => {
-    const uniqueName = Date.now() + "-" + file.originalname;
-    cb(null, uniqueName);
-  },
-});
-
-const upload = multer({ storage });
+const upload = multer({ storage: multer.memoryStorage() });
 
 // Routes
 router.post(
@@ -33,5 +24,6 @@ router.post(
 router.get("/my", verifyJWT, getMyFiles);
 
 router.get("/download/:id", verifyJWT, downloadFile);
+router.patch("/:id/move", verifyJWT, moveFile);
 
 module.exports = router;

@@ -3,15 +3,11 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useKey } from "../context/KeyContext";
-
+import { buildFolderTree } from "../utils/buildTree";
 import { 
-  importAESKey, 
   decryptFile,  
   unwrapAESKeyWithPrivateKey,
 } from "../utils/crypto";
-import {
-  decryptPrivateKey,
-} from "../utils/privateKeyBackup";
 
 import { 
   Loader2,
@@ -24,6 +20,45 @@ import {
 // Reusable UI Components
 import Sidebar from "../components/layout/Sidebar";
 import Header from "../components/layout/Header";
+import { ChevronRight, ChevronDown } from "lucide-react";
+
+const FolderNode = ({ folder, depth = 0, onSelect }) => {
+  const [open, setOpen] = useState(false);
+  const hasChildren = folder.children?.length > 0;
+
+  return (
+    <div>
+      <div
+        className="flex items-center gap-1 hover:bg-slate-800 px-2 py-1 rounded cursor-pointer"
+        style={{ paddingLeft: depth * 16 }}
+      >
+        {hasChildren && (
+          <button onClick={() => setOpen(!open)}>
+            {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          </button>
+        )}
+
+        <button
+          onClick={() => onSelect(folder._id)}
+          className="flex-1 text-left"
+        >
+          📁 {folder.name || "Root"}
+        </button>
+      </div>
+
+      {open &&
+        folder.children?.map(child => (
+          <FolderNode
+            key={child._id}
+            folder={child}
+            depth={depth + 1}
+            onSelect={onSelect}
+          />
+        ))}
+    </div>
+  );
+};
+
 
 
 
@@ -34,23 +69,101 @@ const MyFiles = () => {
   const [error, setError] = useState("");
   const [decryptingId, setDecryptingId] = useState(null);
   const { privateKey } = useKey();
+  const [folders, setFolders] = useState([]);
+  const [currentFolder, setCurrentFolder] = useState(null);
+  const [folderStack, setFolderStack] = useState([]);
+  const [movingFolder, setMovingFolder] = useState(null);
+
+
+  const [showCreateFolder, setShowCreateFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [moveTarget, setMoveTarget] = useState(null);
+  const [movingItem, setMovingItem] = useState(null);
+  const [folderTree, setFolderTree] = useState([]);
+  const isEmpty = !error && folders.length === 0 && files.length === 0;
+  const hasContent = !error && (folders.length > 0 || files.length > 0);
+
+
+
   const navigate = useNavigate();
+
+
+  const refreshFolderTree = async () => {
+    const res = await api.get("/folders/tree");
+    setFolderTree(buildFolderTree(res.data.folders));
+  };
+
+
+  const createFolder = async () => {
+    if (!newFolderName.trim()) return;
+
+    await api.post("/folders", {
+      name: newFolderName,
+      parent: currentFolder, // 👈 key point
+    });
+
+    setNewFolderName("");
+    setShowCreateFolder(false);
+
+    // refresh
+    const res = await api.get("/folders", {
+      params: { parent: currentFolder },
+    });
+    setFolders(res.data.folders);
+  };
+
+  const moveFile = async (fileId, folderId) => {
+    if (folderId === movingItem?.folder) {
+      setMovingItem(null);
+      return;
+    }
+
+    await api.patch(`/files/${fileId}/move`, {
+      folderId,
+    });
+    await refreshFolderTree(); 
+    setMovingItem(null);
+
+    const res = await api.get("/files/my", {
+      params: { folder: currentFolder },
+    });
+    setFiles(res.data.files);
+  };
 
 
 
   useEffect(() => {
-    const fetchFiles = async () => {
+    if (!movingItem && !movingFolder) return;
+
+    refreshFolderTree();
+  }, [movingItem, movingFolder]);
+
+
+
+  useEffect(() => {
+    const fetchData = async () => {
       try {
-        const res = await api.get("/files/my");
-        setFiles(res.data.files || []);
-      } catch (err) {
+        const [filesRes, foldersRes] = await Promise.all([
+          api.get("/files/my", {
+            params: { folder: currentFolder },
+          }),
+          api.get("/folders", {
+            params: { parent: currentFolder },
+          }),
+        ]);
+
+        setFiles(filesRes.data.files || []);
+        setFolders(foldersRes.data.folders || []);
+      } catch {
         setError("Unable to retrieve your vault data.");
       } finally {
         setLoading(false);
       }
     };
-    fetchFiles();
-  }, [api]);
+
+    fetchData();
+  }, [api, currentFolder]);
+
 
   const handleDownload = async (file) => {
     try {
@@ -118,23 +231,129 @@ const MyFiles = () => {
         {/* Dimension matched to Dashboard */}
         <div className="flex-1 overflow-hidden flex flex-col p-6 lg:p-10">
           <div className="max-w-6xl mx-auto w-full h-full flex flex-col">
-            
-            {error ? (
-              <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-2xl flex items-center gap-3 font-bold text-sm">
-                <AlertCircle size={20} /> {error}
+            {/* Back Navigation */}
+            <div className="mb-4 flex items-center gap-2 text-xs font-bold text-slate-400">
+              {/* Root */}
+              <button
+                onClick={() => {
+                  setFolderStack([]);
+                  setCurrentFolder(null);
+                }}
+                className="hover:text-indigo-400 transition"
+              >
+                Root
+              </button>
+
+              {folderStack.map((folder, index) => (
+                <span key={folder._id} className="flex items-center gap-2">
+                  <span>/</span>
+                  <button
+                    onClick={() => {
+                      const updated = folderStack.slice(0, index + 1);
+                      setFolderStack(updated);
+                      setCurrentFolder(folder._id);
+                    }}
+                    className={`transition ${
+                      index === folderStack.length - 1
+                        ? "text-white cursor-default"
+                        : "text-slate-400 hover:text-indigo-400"
+                    }`}
+                  >
+                    {folder.name}
+                  </button>
+                </span>
+              ))}
+            </div>
+
+
+
+
+            {currentFolder && (
+              <button
+                onClick={() => {
+                  const updated = [...folderStack];
+                  updated.pop();
+
+                  setFolderStack(updated);
+                  setCurrentFolder(updated.length ? updated[updated.length - 1]._id : null);
+                }}
+
+
+                className="mb-6 text-indigo-400 font-bold text-sm flex items-center gap-2"
+              >
+                ← Back
+              </button>
+            )}
+
+            {error && (
+              <div className="mb-6 bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-2xl flex items-center gap-3 font-bold text-sm">
+                <AlertCircle size={20} />
+                {error}
               </div>
-            ) : files.length === 0 ? (
+            )}
+
+            {isEmpty && (
               <div className="text-center py-20 bg-slate-900/20 border border-dashed border-slate-800 rounded-[2rem]">
                 <Database className="text-slate-700 w-16 h-16 mx-auto mb-4" />
                 <h3 className="text-xl font-bold text-white">No files found</h3>
-                <p className="text-slate-500 mb-8 text-sm">Your secure storage is currently empty.</p>
-                <Link to="/dashboard" className="bg-indigo-600 text-white px-8 py-3 rounded-2xl font-bold hover:bg-indigo-500 transition-all inline-flex items-center gap-2">
-                  Go to Upload <ArrowRight size={18} />
-                </Link>
+                <p className="text-slate-500 mb-8 text-sm">
+                  Your secure storage is currently empty.
+                </p>
+
+                <button
+                  onClick={() => {
+                    navigate("/dashboard", {
+                      state: {
+                        targetFolder: currentFolder,
+                        targetFolderName:
+                          folderStack.length > 0
+                            ? folderStack[folderStack.length - 1].name
+                            : "Root",
+                      },
+                    });
+                  }}
+                  className="bg-indigo-600 text-white px-8 py-3 rounded-2xl font-bold hover:bg-indigo-500 transition-all inline-flex items-center gap-2"
+                >
+                  Upload Here <ArrowRight size={18} />
+                </button>
               </div>
-            ) : (
-              /* THE EXACT TABLE UI YOU REQUESTED */
+            )}
+
+
+            {hasContent && (
               <div className="bg-slate-900/40 backdrop-blur-2xl border border-white/10 rounded-[2rem] shadow-2xl overflow-hidden border-slate-800/50 flex flex-col flex-1">
+                {/* Folder Actions Toolbar */}
+                {/* Folder Actions Toolbar */}
+                <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setShowCreateFolder(true)}
+                      className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-500 transition"
+                    >
+                      + New Folder
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        navigate("/dashboard", {
+                          state: {
+                            targetFolder: currentFolder,
+                            targetFolderName:
+                              folderStack.length > 0
+                                ? folderStack[folderStack.length - 1].name
+                                : "Root",
+                          },
+                        });
+                      }}
+                      className="px-4 py-2 bg-slate-800 text-slate-200 rounded-xl font-bold hover:bg-slate-700 transition"
+                    >
+                      ⬆ Upload Here
+                    </button>
+                  </div>
+                </div>
+
+
+
                 <div className="overflow-x-auto overflow-y-auto h-full">
                   <table className="w-full text-left border-collapse">
                     <thead className="sticky top-0 bg-[#0a0f1d] z-10">
@@ -146,6 +365,85 @@ const MyFiles = () => {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/50">
+                      {showCreateFolder && (
+                        <div className="mb-4 flex gap-2">
+                          <input
+                            value={newFolderName}
+                            onChange={(e) => setNewFolderName(e.target.value)}
+                            placeholder="Folder name"
+                            className="px-4 py-2 rounded-lg bg-slate-900 border border-slate-700"
+                          />
+                          <button
+                            onClick={createFolder}
+                            className="px-4 py-2 bg-emerald-600 rounded-lg font-bold"
+                          >
+                            Create
+                          </button>
+                        </div>
+                      )}
+
+                      {folders.map((folder) => (
+                        <tr key={folder._id} className="group hover:bg-indigo-500/[0.02]">
+                          <td
+                            onClick={() => {
+                              setFolderStack(prev => [...prev, folder]);
+                              setCurrentFolder(folder._id);
+                            }}
+                            className="px-8 py-6 font-bold text-indigo-400 flex items-center gap-4 cursor-pointer"
+                          >
+                            📁 {folder.name}
+                          </td>
+
+                          <td colSpan={2}></td>
+
+                          <td className="px-8 py-6 text-right">
+                            <button
+                              onClick={() => setMovingFolder(folder)}
+                              className="text-indigo-400 text-xs font-bold hover:underline"
+                            >
+                              Move
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                      {movingFolder && (
+                        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+                          <div className="bg-slate-900 p-6 rounded-xl w-96 max-h-[80vh] overflow-y-auto">
+                            <h3 className="font-bold mb-4">
+                              Move folder: {movingFolder.name}
+                            </h3>
+
+                            <FolderNode
+                              folder={{ name: "Root", _id: null, children: folderTree }}
+                              onSelect={async (targetId) => {
+                                await api.patch(`/folders/${movingFolder._id}/move`, {
+                                  parent: targetId,
+                                });
+
+                                // 🔄 REFRESH TREE AFTER MOVE
+                                await refreshFolderTree();
+
+                                // refresh visible folder list
+                                const res = await api.get("/folders", {
+                                  params: { parent: currentFolder },
+                                });
+                                setFolders(res.data.folders);
+
+                                setMovingFolder(null);
+
+                              }}
+                            />
+
+                            <button
+                              onClick={() => setMovingFolder(null)}
+                              className="mt-4 text-sm text-slate-400"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
                       {files.map((file) => (
                         <tr key={file._id} className="hover:bg-indigo-500/[0.02] transition-colors group">
                           <td className="px-8 py-6">
@@ -172,7 +470,16 @@ const MyFiles = () => {
                               <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-lock" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg> 
                               AES-256
                             </span>
+                            <button
+                              onClick={() => setMovingItem(file)}
+                              className="ml-3 text-indigo-400 text-xs font-bold"
+                            >
+                              Move
+                            </button>
+                            
                           </td>
+
+
                           <td className="px-8 py-6 text-right">
                             <button 
                               onClick={() => handleDownload(file)}
@@ -199,6 +506,27 @@ const MyFiles = () => {
             )}
           </div>
         </div>
+        {movingItem && (
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+            <div className="bg-slate-900 p-6 rounded-xl w-96 max-h-[80vh] overflow-y-auto">
+              <h3 className="font-bold mb-4">Move to folder</h3>
+
+              <FolderNode
+                folder={{ name: "Root", _id: null, children: folderTree }}
+                onSelect={(targetId) => {
+                  moveFile(movingItem._id, targetId);
+                }}
+              />
+
+              <button
+                onClick={() => setMovingItem(null)}
+                className="mt-4 text-sm text-slate-400"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );

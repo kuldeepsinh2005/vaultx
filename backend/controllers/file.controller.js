@@ -1,7 +1,7 @@
+// backend/controllers/file.controller.js
 const File = require("../models/File.model");
-const fs = require("fs");
-const path = require("path");
-
+const { getStorageProvider } = require("../storage");
+const { ensureFolderPath } = require("../utils/folderHelper");
 // Upload encrypted file
 exports.uploadFile = async (req, res) => {
   try {
@@ -11,15 +11,55 @@ exports.uploadFile = async (req, res) => {
       return res.status(400).json({ error: "Missing file or wrapped key" });
     }
 
-    const fileDoc = await File.create({
-      owner: req.user._id,
-      originalName: req.file.originalname,
+    const originalFilename = req.file.originalname; // ✅ FIX
+    let folderId = null;
+    const relativePath = req.body.relativePath || null;
+    if (relativePath && relativePath.includes("/")) {
+      const parts = relativePath.split("/");
+
+      // remove filename
+      parts.pop();
+
+      // 👇 IMPORTANT: If user selected a target folder
+      if (req.body.folder) {
+        // Create uploaded folder INSIDE selected folder
+        folderId = await ensureFolderPath(
+          req.user._id,
+          parts,
+          req.body.folder   // 👈 base folder
+        );
+      } else {
+        // Normal folder upload at root
+        folderId = await ensureFolderPath(
+          req.user._id,
+          parts
+        );
+      }
+    } else if (req.body.folder) {
+      // Single file upload into selected folder
+      folderId = req.body.folder;
+    }
+
+    const storage = getStorageProvider();
+
+    // Always unique name in storage
+    const storageFilename = `${Date.now()}-${originalFilename}`;
+
+    const result = await storage.save(req.file.buffer, {
+      filename: storageFilename,
       mimeType: req.file.mimetype,
-      size: req.file.size,
-      storagePath: req.file.path,
-      wrappedKey,
     });
 
+    const fileDoc = await File.create({
+      owner: req.user._id,
+      originalName: originalFilename,
+      mimeType: req.file.mimetype,
+      size: result.size,
+      storagePath: result.path,
+      storageProvider: result.provider,
+      wrappedKey,
+      folder: folderId || null,
+    });
 
     res.status(201).json({
       success: true,
@@ -31,11 +71,17 @@ exports.uploadFile = async (req, res) => {
   }
 };
 
+
 // Get logged-in user's files
 exports.getMyFiles = async (req, res) => {
   try {
-    const files = await File.find({ owner: req.user._id })
-      .select("_id originalName size createdAt wrappedKey");
+    const folder = req.query.folder || null;
+
+    const files = await File.find({
+      owner: req.user._id,
+      folder,
+    }).select("_id originalName size createdAt wrappedKey");
+
 
     res.status(200).json({
       success: true,
@@ -59,7 +105,8 @@ exports.downloadFile = async (req, res) => {
       return res.status(404).json({ error: "File not found" });
     }
 
-    const absolutePath = path.resolve(file.storagePath);
+    const storage = getStorageProvider();
+    const stream = await storage.getStream(file.storagePath);
 
     res.setHeader(
       "Content-Disposition",
@@ -67,10 +114,56 @@ exports.downloadFile = async (req, res) => {
     );
     res.setHeader("Content-Type", "application/octet-stream");
 
-    const stream = fs.createReadStream(absolutePath);
     stream.pipe(res);
+
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Download failed" });
   }
 };
+
+// PATCH /api/files/:id/move
+exports.moveFile = async (req, res) => {
+  try {
+    const { folderId } = req.body;
+
+    await File.findOneAndUpdate(
+      { _id: req.params.id, owner: req.user._id },
+      { folder: folderId || null }
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "Move failed" });
+  }
+};
+
+
+
+/*
+// for future use with storage providers
+const { getStorageProvider } = require("../storage");
+const File = require("../models/File.model");
+
+exports.uploadEncryptedFile = async (req, res) => {
+  const storage = getStorageProvider();
+
+  const result = await storage.save(req.file.buffer, {
+    filename: `${Date.now()}-${req.file.originalname}`,
+  });
+
+  const file = await File.create({
+    owner: req.user._id,
+    originalName: req.file.originalname,
+    mimeType: req.file.mimetype,
+    size: result.size,
+    storagePath: result.path,
+    storageProvider: result.provider,
+    encryptedKey: req.body.encryptedKey,
+  });
+
+  res.status(201).json({ success: true, file });
+};
+
+
+*/
