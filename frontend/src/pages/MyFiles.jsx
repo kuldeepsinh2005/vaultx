@@ -7,6 +7,9 @@ import { buildFolderTree } from "../utils/buildTree";
 import { 
   decryptFile,  
   unwrapAESKeyWithPrivateKey,
+  base64ToUint8Array,
+  base64UrlToUint8Array,
+  universalDecode
 } from "../utils/crypto";
 
 import { 
@@ -22,8 +25,15 @@ import Sidebar from "../components/layout/Sidebar";
 import Header from "../components/layout/Header";
 import { ChevronRight, ChevronDown } from "lucide-react";
 
+import JSZip from "jszip";
+import { saveAs } from "file-saver";
+
 const FolderNode = ({ folder, depth = 0, onSelect }) => {
   const [open, setOpen] = useState(false);
+  useEffect(() => {
+    setOpen(false);
+  }, [folder._id]);
+
   const hasChildren = folder.children?.length > 0;
 
   return (
@@ -73,11 +83,14 @@ const MyFiles = () => {
   const [currentFolder, setCurrentFolder] = useState(null);
   const [folderStack, setFolderStack] = useState([]);
   const [movingFolder, setMovingFolder] = useState(null);
+  const [deletingItem, setDeletingItem] = useState(null);
 
 
   const [showCreateFolder, setShowCreateFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
-  const [moveTarget, setMoveTarget] = useState(null);
+  // const [moveTarget, setMoveTarget] = useState(null);
+  const [treeVersion, setTreeVersion] = useState(0);
+
   const [movingItem, setMovingItem] = useState(null);
   const [folderTree, setFolderTree] = useState([]);
   const isEmpty = !error && folders.length === 0 && files.length === 0;
@@ -91,6 +104,7 @@ const MyFiles = () => {
   const refreshFolderTree = async () => {
     const res = await api.get("/folders/tree");
     setFolderTree(buildFolderTree(res.data.folders));
+    setTreeVersion(v => v + 1); // 👈 FORCE REMOUNT
   };
 
 
@@ -121,22 +135,18 @@ const MyFiles = () => {
     await api.patch(`/files/${fileId}/move`, {
       folderId,
     });
-    await refreshFolderTree(); 
-    setMovingItem(null);
+    await refreshAll();
+  setMovingItem(null);
 
-    const res = await api.get("/files/my", {
-      params: { folder: currentFolder },
-    });
-    setFiles(res.data.files);
   };
 
 
 
-  useEffect(() => {
-    if (!movingItem && !movingFolder) return;
+  // useEffect(() => {
+  //   if (!movingItem && !movingFolder) return;
 
-    refreshFolderTree();
-  }, [movingItem, movingFolder]);
+  //   refreshFolderTree();
+  // }, [movingItem, movingFolder]);
 
 
 
@@ -175,10 +185,9 @@ const MyFiles = () => {
       setDecryptingId(file._id);
 
       // 1️⃣ Download encrypted file
-      const res = await api.get(
-        `/files/download/${file._id}`,
-        { responseType: "blob" }
-      );
+      const res = await api.get(`/files/download/${file._id}`, {
+        responseType: "blob",
+      });
 
       // 2️⃣ Unwrap AES key
       const aesKey = await unwrapAESKeyWithPrivateKey(
@@ -186,29 +195,126 @@ const MyFiles = () => {
         privateKey
       );
 
-      // 3️⃣ Decrypt file
+      // 3️⃣ Decode IV - Use the robust version
+      const iv = universalDecode(file.iv);
+
+      // 4️⃣ Decrypt
       const decryptedBuffer = await decryptFile(
-        res.data,
-        aesKey
+        res.data, // This is the blob from Axios
+        aesKey,
+        iv
       );
 
-      // 4️⃣ Download plaintext file
-      const blob = new Blob([decryptedBuffer]);
+      // 5️⃣ Create Download - Set the correct MIME type from DB
+      const blob = new Blob([decryptedBuffer], { type: file.mimeType });
       const url = URL.createObjectURL(blob);
 
       const a = document.createElement("a");
       a.href = url;
-      a.download = file.originalName;
+      a.download = file.originalName; // Ensure this is the original name
+      document.body.appendChild(a); // Append to body for Firefox support
       a.click();
+      document.body.removeChild(a);
 
       URL.revokeObjectURL(url);
     } catch (err) {
-      console.error(err);
-      alert("Decryption failed");
+      console.error("Decryption Error Details:", err);
+      alert(`Decryption failed: ${err.message}`);
     } finally {
       setDecryptingId(null);
     }
   };
+  const confirmDelete = async () => {
+    try {
+      if (deletingItem.type === "file") {
+        await api.patch(`/files/${deletingItem.data._id}/delete`);
+      } else {
+        await api.patch(`/folders/${deletingItem.data._id}/delete`);
+      }
+
+
+      await refreshFolderTree();
+
+      const [filesRes, foldersRes] = await Promise.all([
+        api.get("/files/my", { params: { folder: currentFolder } }),
+        api.get("/folders", { params: { parent: currentFolder } }),
+      ]);
+
+     await refreshAll();
+
+
+      setDeletingItem(null);
+    } catch (err) {
+      alert("Delete failed");
+    }
+  };
+
+  const prepareDelete = async (folder) => {
+    try {
+      const res = await api.get(`/folders/${folder._id}/count`);
+      setDeletingItem({
+        type: "folder",
+        data: folder,
+        count: res.data,
+      });
+    } catch (err) {
+      alert("Failed to get folder details");
+    }
+  };
+
+
+  const handleFolderDownload = async (folderId, folderName) => {
+    try {
+      if (!privateKey) { navigate("/unlock"); return; }
+      setDecryptingId(folderId);
+
+      const metaRes = await api.get(`/folders/${folderId}/all-contents`);
+      const { files } = metaRes.data;
+      const zip = new JSZip();
+
+      // Use Promise.all with a limit or sequential loop for stability
+      for (const file of files) {
+        try {
+          const res = await api.get(`/files/download/${file._id}`, { responseType: "blob" });
+          const aesKey = await unwrapAESKeyWithPrivateKey(file.wrappedKey, privateKey);
+          
+          // Use the universal decoder here
+          const iv = universalDecode(file.iv);
+
+          const decryptedBuffer = await decryptFile(res.data, aesKey, iv);
+          
+          // Ensure pathing doesn't have leading slashes
+          const cleanPath = file.zipPath.startsWith('/') ? file.zipPath.slice(1) : file.zipPath;
+          zip.file(cleanPath, decryptedBuffer);
+        } catch (fileErr) {
+          console.error(`Failed to decrypt ${file.originalName}:`, fileErr);
+        }
+      }
+
+      const content = await zip.generateAsync({ type: "blob" });
+      saveAs(content, `${folderName}.zip`);
+    } catch (err) {
+      console.error("Folder download failed:", err);
+      alert("Could not process folder download.");
+    } finally {
+      setDecryptingId(null);
+    }
+  };
+
+  const refreshAll = async () => {
+    await refreshFolderTree();
+
+    const [filesRes, foldersRes] = await Promise.all([
+      api.get("/files/my", { params: { folder: currentFolder } }),
+      api.get("/folders", { params: { parent: currentFolder } }),
+    ]);
+
+    setFiles(filesRes.data.files || []);
+    setFolders(foldersRes.data.folders || []);
+  };
+  useEffect(() => {
+    refreshFolderTree();
+  }, []);
 
 
 
@@ -365,140 +471,165 @@ const MyFiles = () => {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/50">
-                      {showCreateFolder && (
-                        <div className="mb-4 flex gap-2">
-                          <input
-                            value={newFolderName}
-                            onChange={(e) => setNewFolderName(e.target.value)}
-                            placeholder="Folder name"
-                            className="px-4 py-2 rounded-lg bg-slate-900 border border-slate-700"
-                          />
-                          <button
-                            onClick={createFolder}
-                            className="px-4 py-2 bg-emerald-600 rounded-lg font-bold"
-                          >
-                            Create
-                          </button>
-                        </div>
-                      )}
+                      {/* <tr> */}
+                        {/* <td colSpan={4}> */}
+                          {showCreateFolder && (
+                            <div className="mb-4 flex gap-2">
+                              <input
+                                value={newFolderName}
+                                onChange={(e) => setNewFolderName(e.target.value)}
+                                placeholder="Folder name"
+                                className="px-4 py-2 rounded-lg bg-slate-900 border border-slate-700"
+                              />
+                              <button
+                                onClick={createFolder}
+                                className="px-4 py-2 bg-emerald-600 rounded-lg font-bold"
+                              >
+                                Create
+                              </button>
+                            </div>
+                          )}
 
-                      {folders.map((folder) => (
-                        <tr key={folder._id} className="group hover:bg-indigo-500/[0.02]">
-                          <td
-                            onClick={() => {
-                              setFolderStack(prev => [...prev, folder]);
-                              setCurrentFolder(folder._id);
-                            }}
-                            className="px-8 py-6 font-bold text-indigo-400 flex items-center gap-4 cursor-pointer"
-                          >
-                            📁 {folder.name}
-                          </td>
+                          {folders.map((folder) => (
+                            <tr key={folder._id} className="group hover:bg-indigo-500/[0.02]">
+                              <td
+                                onClick={() => {
+                                  setFolderStack(prev => [...prev, folder]);
+                                  setCurrentFolder(folder._id);
+                                }}
+                                className="px-8 py-6 font-bold text-indigo-400 flex items-center gap-4 cursor-pointer"
+                              >
+                                📁 {folder.name}
+                              </td>
 
-                          <td colSpan={2}></td>
+                              <td colSpan={2}></td>
 
-                          <td className="px-8 py-6 text-right">
-                            <button
-                              onClick={() => setMovingFolder(folder)}
-                              className="text-indigo-400 text-xs font-bold hover:underline"
-                            >
-                              Move
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                      {movingFolder && (
-                        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-                          <div className="bg-slate-900 p-6 rounded-xl w-96 max-h-[80vh] overflow-y-auto">
-                            <h3 className="font-bold mb-4">
-                              Move folder: {movingFolder.name}
-                            </h3>
+                              <td className="px-8 py-6 text-right">
+                                <button
+                                  onClick={() => setMovingFolder(folder)}
+                                  className="text-indigo-400 text-xs font-bold hover:underline"
+                                >
+                                  Move
+                                </button>
+                               <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  prepareDelete(folder);
+                                }}
+                                className="ml-4 text-red-400 text-xs font-bold"
+                              >
+                                Delete
+                              </button>
 
-                            <FolderNode
-                              folder={{ name: "Root", _id: null, children: folderTree }}
-                              onSelect={async (targetId) => {
-                                await api.patch(`/folders/${movingFolder._id}/move`, {
-                                  parent: targetId,
-                                });
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleFolderDownload(folder._id, folder.name);
+                                  }}
+                                  className="ml-3 text-emerald-400 text-xs font-bold"
+                                >
+                                  Download
+                                </button>
 
-                                // 🔄 REFRESH TREE AFTER MOVE
-                                await refreshFolderTree();
+                              </td>
+                            </tr>
+                          ))}
+                          {movingFolder && (
+                            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+                              <div className="bg-slate-900 p-6 rounded-xl w-96 max-h-[80vh] overflow-y-auto">
+                                <h3 className="font-bold mb-4">
+                                  Move folder: {movingFolder.name}
+                                </h3>
 
-                                // refresh visible folder list
-                                const res = await api.get("/folders", {
-                                  params: { parent: currentFolder },
-                                });
-                                setFolders(res.data.folders);
+                                <FolderNode
+                                  key={treeVersion}
+                                  folder={{ name: "Root", _id: null, children: folderTree }}
+                                  onSelect={async (targetId) => {
+                                    if (targetId === movingFolder._id) return;
+                                   await api.patch(`/folders/${movingFolder._id}/move`, {
+                                      parent: targetId,
+                                    });
 
-                                setMovingFolder(null);
+                                    setMovingFolder(null);   // 👈 CLOSE MODAL FIRST
+                                    await refreshAll();      // 👈 THEN REFRESH
 
-                              }}
-                            />
 
-                            <button
-                              onClick={() => setMovingFolder(null)}
-                              className="mt-4 text-sm text-slate-400"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        </div>
-                      )}
+                                  }}
+                                />
 
-                      {files.map((file) => (
-                        <tr key={file._id} className="hover:bg-indigo-500/[0.02] transition-colors group">
-                          <td className="px-8 py-6">
-                            <div className="flex items-center gap-5">
-                              <div className="w-12 h-12 bg-slate-900 border border-slate-800 text-slate-500 rounded-2xl flex items-center justify-center group-hover:border-indigo-500/30 group-hover:text-indigo-400 transition-all">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-file-text" aria-hidden="true"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"></path><path d="M14 2v5a1 1 0 0 0 1 1h5"></path><path d="M10 9H8"></path><path d="M16 13H8"></path><path d="M16 17H8"></path></svg>
-                              </div>
-                              <div>
-                                <p className="font-bold text-white group-hover:text-indigo-100 transition-colors truncate max-w-[150px] sm:max-w-xs uppercase tracking-tight">
-                                  {file.originalName}
-                                </p>
-                                <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest flex items-center gap-1.5 mt-1">
-                                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-clock text-indigo-500/50" aria-hidden="true"><path d="M12 6v6l4 2"></path><circle cx="12" cy="12" r="10"></circle></svg> 
-                                  {new Date(file.createdAt).toLocaleDateString()}
-                                </p>
+                                <button
+                                  onClick={() => setMovingFolder(null)}
+                                  className="mt-4 text-sm text-slate-400"
+                                >
+                                  Cancel
+                                </button>
                               </div>
                             </div>
-                          </td>
-                          <td className="px-8 py-6 text-xs font-bold text-slate-500 hidden sm:table-cell">
-                            {(file.size / 1024).toFixed(1)} KB
-                          </td>
-                          <td className="px-8 py-6 hidden md:table-cell">
-                            <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-emerald-500/5 border border-emerald-500/20 text-emerald-500">
-                              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-lock" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg> 
-                              AES-256
-                            </span>
-                            <button
-                              onClick={() => setMovingItem(file)}
-                              className="ml-3 text-indigo-400 text-xs font-bold"
-                            >
-                              Move
-                            </button>
-                            
-                          </td>
+                          )}
+
+                          {files.map((file) => (
+                            <tr key={file._id} className="hover:bg-indigo-500/[0.02] transition-colors group">
+                              <td className="px-8 py-6">
+                                <div className="flex items-center gap-5">
+                                  <div className="w-12 h-12 bg-slate-900 border border-slate-800 text-slate-500 rounded-2xl flex items-center justify-center group-hover:border-indigo-500/30 group-hover:text-indigo-400 transition-all">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-file-text" aria-hidden="true"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"></path><path d="M14 2v5a1 1 0 0 0 1 1h5"></path><path d="M10 9H8"></path><path d="M16 13H8"></path><path d="M16 17H8"></path></svg>
+                                  </div>
+                                  <div>
+                                    <p className="font-bold text-white group-hover:text-indigo-100 transition-colors truncate max-w-[150px] sm:max-w-xs uppercase tracking-tight">
+                                      {file.originalName}
+                                    </p>
+                                    <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest flex items-center gap-1.5 mt-1">
+                                      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-clock text-indigo-500/50" aria-hidden="true"><path d="M12 6v6l4 2"></path><circle cx="12" cy="12" r="10"></circle></svg> 
+                                      {new Date(file.createdAt).toLocaleDateString()}
+                                    </p>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="px-8 py-6 text-xs font-bold text-slate-500 hidden sm:table-cell">
+                                {(file.size / 1024).toFixed(1)} KB
+                              </td>
+                              <td className="px-8 py-6 hidden md:table-cell">
+                                <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-emerald-500/5 border border-emerald-500/20 text-emerald-500">
+                                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-lock" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg> 
+                                  AES-256
+                                </span>
+                                <button
+                                  onClick={() => setMovingItem(file)}
+                                  className="ml-3 text-indigo-400 text-xs font-bold"
+                                >
+                                  Move
+                                </button>
+                                <button
+                                  onClick={() => setDeletingItem({ type: "file", data: file })}
+                                  className="ml-3 text-red-400 text-xs font-bold"
+                                >
+                                  Delete
+                                </button>
+
+                              </td>
 
 
-                          <td className="px-8 py-6 text-right">
-                            <button 
-                              onClick={() => handleDownload(file)}
-                              disabled={decryptingId === file._id}
-                              className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-xl transition-all font-black text-[10px] uppercase tracking-widest border
-                              ${decryptingId === file._id 
-                                ? 'bg-indigo-500/20 border-indigo-500/40 text-indigo-400' 
-                                : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-white hover:text-black hover:border-white shadow-xl hover:shadow-white/5'}`}
-                            >
-                              {decryptingId === file._id ? (
-                                <Loader2 className="w-[14px] h-[14px] animate-spin" />
-                              ) : (
-                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-download" aria-hidden="true"><path d="M12 15V3"></path><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="m7 10 5 5 5-5"></path></svg>
-                              )}
-                              {decryptingId === file._id ? "Decrypting" : "Retrieve"}
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                              <td className="px-8 py-6 text-right">
+                                <button 
+                                  onClick={() => handleDownload(file)}
+                                  disabled={decryptingId === file._id}
+                                  className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-xl transition-all font-black text-[10px] uppercase tracking-widest border
+                                  ${decryptingId === file._id 
+                                    ? 'bg-indigo-500/20 border-indigo-500/40 text-indigo-400' 
+                                    : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-white hover:text-black hover:border-white shadow-xl hover:shadow-white/5'}`}
+                                >
+                                  {decryptingId === file._id ? (
+                                    <Loader2 className="w-[14px] h-[14px] animate-spin" />
+                                  ) : (
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-download" aria-hidden="true"><path d="M12 15V3"></path><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="m7 10 5 5 5-5"></path></svg>
+                                  )}
+                                  {decryptingId === file._id ? "Decrypting" : "Retrieve"}
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        {/* </td> */}
+                      {/* </tr> */}
                     </tbody>
                   </table>
                 </div>
@@ -512,7 +643,9 @@ const MyFiles = () => {
               <h3 className="font-bold mb-4">Move to folder</h3>
 
               <FolderNode
+                key={treeVersion}
                 folder={{ name: "Root", _id: null, children: folderTree }}
+
                 onSelect={(targetId) => {
                   moveFile(movingItem._id, targetId);
                 }}
@@ -528,6 +661,38 @@ const MyFiles = () => {
           </div>
         )}
       </main>
+      {deletingItem && (
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+            <div className="bg-slate-900 p-6 rounded-xl w-96">
+              <h3 className="font-bold text-red-400 mb-2">
+                Delete {deletingItem.type === "file" ? "File" : "Folder"}?
+              </h3>
+
+              <p className="text-sm text-slate-400 mb-4">
+                {deletingItem.type === "folder"
+                  ? "This will move this folder to Trash. You can restore it later."
+                  : "This will move this file to Trash. You can restore it later."}
+              </p>
+
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => setDeletingItem(null)}
+                  className="px-4 py-2 bg-slate-700 rounded"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  onClick={confirmDelete}
+                  className="px-4 py-2 bg-red-600 rounded font-bold"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
     </div>
   );
 };

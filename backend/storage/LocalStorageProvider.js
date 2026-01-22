@@ -6,8 +6,11 @@ const StorageProvider = require("./StorageProvider");
 class LocalStorageProvider extends StorageProvider {
   constructor() {
     super();
-    this.basePath = path.join(__dirname, "..", "..", "uploads");
+    // Use ENV variable, fallback to the old logic only if ENV is missing
+    this.basePath = process.env.UPLOAD_DIR || path.join(__dirname, "..", "..", "uploads");
+    
     if (!fs.existsSync(this.basePath)) {
+      console.log(`Creating upload directory at: ${this.basePath}`);
       fs.mkdirSync(this.basePath, { recursive: true });
     }
   }

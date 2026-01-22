@@ -5,7 +5,8 @@ const { ensureFolderPath } = require("../utils/folderHelper");
 // Upload encrypted file
 exports.uploadFile = async (req, res) => {
   try {
-    const { wrappedKey } = req.body;
+    const { wrappedKey, iv } = req.body;
+
 
     if (!req.file || !wrappedKey) {
       return res.status(400).json({ error: "Missing file or wrapped key" });
@@ -50,6 +51,17 @@ exports.uploadFile = async (req, res) => {
       mimeType: req.file.mimetype,
     });
 
+    // const fileDoc = await File.create({
+    //   owner: req.user._id,
+    //   originalName: originalFilename,
+    //   mimeType: req.file.mimetype,
+    //   size: result.size,
+    //   storagePath: result.path,
+    //   storageProvider: result.provider,
+    //   wrappedKey,
+    //   folder: folderId || null,
+    // });
+
     const fileDoc = await File.create({
       owner: req.user._id,
       originalName: originalFilename,
@@ -58,8 +70,10 @@ exports.uploadFile = async (req, res) => {
       storagePath: result.path,
       storageProvider: result.provider,
       wrappedKey,
+      iv,               // ✅ REQUIRED
       folder: folderId || null,
     });
+
 
     res.status(201).json({
       success: true,
@@ -80,7 +94,8 @@ exports.getMyFiles = async (req, res) => {
     const files = await File.find({
       owner: req.user._id,
       folder,
-    }).select("_id originalName size createdAt wrappedKey");
+      isDeleted: false
+    }).select("_id originalName size createdAt wrappedKey iv");
 
 
     res.status(200).json({
@@ -137,6 +152,22 @@ exports.moveFile = async (req, res) => {
     res.status(500).json({ error: "Move failed" });
   }
 };
+
+
+// PATCH /api/files/:id/delete
+  exports.deleteFile = async (req, res) => {
+    try {
+      console.log("1");
+      await File.findOneAndUpdate(
+        { _id: req.params.id, owner: req.user._id },
+        { isDeleted: true, deletedAt: new Date() }
+      );
+      console.log("2");
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: "File delete failed" });
+    }
+  };
 
 
 

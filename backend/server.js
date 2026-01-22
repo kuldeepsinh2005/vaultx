@@ -6,6 +6,8 @@ const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const http = require('http');
 const logger = require('./utils/logger');
+// require("./jobs/trashCleanup.job");
+// require("./jobs/folderCleanup.job");
 
 // --- 1. Initialize Express & HTTP Server ---
 const app = express();
@@ -49,6 +51,7 @@ app.use('/api/files', require('./routes/file.route'));
 app.use("/api/keys", require("./routes/key.route"));
 app.use("/api/account", require("./routes/account.route"));
 app.use("/api/folders", require("./routes/folder.route"));
+app.use("/api/trash", require("./routes/trash.routes"));
 
 
 // --- 6. Server Startup ---

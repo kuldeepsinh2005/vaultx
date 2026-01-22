@@ -56,20 +56,30 @@ export async function importAESKey(base64Url) {
   );
 }
 
-export async function decryptFile(encryptedBlob, aesKey) {
-  const buffer = await encryptedBlob.arrayBuffer();
+export async function decryptFile(encryptedBlob, aesKey, iv) {
+  // 1. Convert Blob to ArrayBuffer explicitly
+  const encryptedData = await encryptedBlob.arrayBuffer();
+  
+  // 2. Ensure IV is a Uint8Array (SubtleCrypto requires this)
+  const ivBuffer = iv instanceof Uint8Array ? iv : new Uint8Array(iv);
 
-  const iv = buffer.slice(0, 12);
-  const encryptedData = buffer.slice(12);
+  console.log("IV for Decryption:", ivBuffer);
+  console.log("Encrypted Data Size:", encryptedData.byteLength);
 
-  const decrypted = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: new Uint8Array(iv) },
+  return crypto.subtle.decrypt(
+    {
+      name: "AES-GCM",
+      iv: ivBuffer,
+    },
     aesKey,
     encryptedData
   );
-
-  return decrypted;
 }
+
+
+
+
+
 
 // Encrypt (wrap) AES key using RSA public key
 export async function wrapAESKeyWithPublicKey(aesKey, publicKeyBase64) {
@@ -102,11 +112,8 @@ export async function wrapAESKeyWithPublicKey(aesKey, publicKeyBase64) {
 }
 
 // Decrypt (unwrap) AES key using RSA private key
-export async function unwrapAESKeyWithPrivateKey(
-  wrappedKeyBase64,
-  privateKey
-) {
-  const wrappedKey = base64UrlDecode(wrappedKeyBase64);
+export async function unwrapAESKeyWithPrivateKey(wrappedKeyBase64, privateKey) {
+  const wrappedKey = universalDecode(wrappedKeyBase64); // Fixed
 
   const rawAES = await crypto.subtle.decrypt(
     { name: "RSA-OAEP" },
@@ -123,15 +130,30 @@ export async function unwrapAESKeyWithPrivateKey(
   );
 }
 
+export function universalDecode(b64) {
+  if (!b64) return new Uint8Array();
+  // Restore standard Base64 characters from URL-safe ones
+  let standard = b64.replace(/-/g, '+').replace(/_/g, '/');
+  // Restore necessary padding
+  while (standard.length % 4) standard += '=';
+  
+  const binaryString = atob(standard);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
 
-function base64UrlEncode(bytes) {
+
+export function base64UrlEncode(bytes) {
   return btoa(String.fromCharCode(...bytes))
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=+$/, "");
 }
 
-function base64UrlDecode(base64Url) {
+export function base64UrlDecode(base64Url) {
   let base64 = base64Url
     .replace(/-/g, "+")
     .replace(/_/g, "/");
@@ -141,4 +163,33 @@ function base64UrlDecode(base64Url) {
   }
 
   return Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+}
+
+export function base64UrlToUint8Array(base64Url) {
+  let base64 = base64Url
+    .replace(/-/g, "+")
+    .replace(/_/g, "/");
+
+  while (base64.length % 4) {
+    base64 += "=";
+  }
+
+  return Uint8Array.from(
+    atob(base64),
+    c => c.charCodeAt(0)
+  );
+}
+
+export function base64ToUint8Array(base64) {
+  // Ensure we handle potential URL-safe characters just in case, 
+  // and fix padding for atob
+  let b64 = base64.replace(/-/g, '+').replace(/_/g, '/');
+  while (b64.length % 4) b64 += '=';
+  
+  const binaryString = atob(b64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
 }

@@ -1,5 +1,6 @@
+// frontend/src/pages/Dashboard.jsx
 import { useAuth } from "../context/AuthContext";
-import { generateAESKey, encryptFile, wrapAESKeyWithPublicKey } from "../utils/crypto";
+import { generateAESKey, encryptFile, wrapAESKeyWithPublicKey,base64UrlEncode } from "../utils/crypto";
 import { useState } from "react";
 import { Link,useLocation   } from "react-router-dom";
 import { useRef } from "react";
@@ -42,71 +43,62 @@ const Dashboard = () => {
 
 
   const handleUpload = async () => {
-    if (!fileList.length) return;
+  if (!fileList.length) return;
 
-    setUploading(true);
-    setStatus({ type: "info", text: "Encrypting & uploading files..." });
+  setUploading(true);
+  setStatus({ type: "info", text: "Encrypting & uploading files..." });
 
-    try {
-      // Fetch public key once
-      const userRes = await api.get("/auth/me");
-      const publicKey = userRes.data.user.publicKey;
+  try {
+    const userRes = await api.get("/auth/me");
+    const publicKey = userRes.data.user.publicKey;
 
-      for (const file of fileList) {
-        // 1️⃣ Generate AES key
-        const aesKey = await generateAESKey();
+    for (const file of fileList) {
+      // 1️⃣ Generate AES key
+      const aesKey = await generateAESKey();
 
-        // 2️⃣ Encrypt file
-        const { encryptedBuffer, iv } = await encryptFile(file, aesKey);
+      // 2️⃣ Encrypt file
+      const { encryptedBuffer, iv } = await encryptFile(file, aesKey);
 
-        // 3️⃣ Wrap AES key
-        const wrappedKey = await wrapAESKeyWithPublicKey(
-          aesKey,
-          publicKey
-        );
+      // 3️⃣ Wrap AES key
+      const wrappedKey = await wrapAESKeyWithPublicKey(aesKey, publicKey);
 
-        // 4️⃣ Create encrypted blob
-        const encryptedBlob = new Blob([
-          iv,
-          new Uint8Array(encryptedBuffer),
-        ]);
+      // 4️⃣ Convert IV to Base64
+      const ivBase64 = base64UrlEncode(iv);
 
-        const formData = new FormData();
-        formData.append("file", encryptedBlob, file.name);
-        formData.append("wrappedKey", wrappedKey);
+      // 5️⃣ Encrypted file = ciphertext ONLY
+      const encryptedBlob = new Blob([
+        new Uint8Array(encryptedBuffer),
+      ]);
 
-        // 🔑 VERY IMPORTANT (folder support)
-        formData.append(
-          "relativePath",
-          file.webkitRelativePath || file.name
-        );
+      const formData = new FormData();
+      formData.append("file", encryptedBlob, file.name);
+      formData.append("wrappedKey", wrappedKey);
+      formData.append("iv", ivBase64);
 
-        // Optional: upload inside current folder
-        if (currentFolder) {
-          formData.append("folder", currentFolder);
-        }
+      formData.append(
+        "relativePath",
+        file.webkitRelativePath || file.name
+      );
 
-        await api.post("/files/upload", formData);
+      if (currentFolder) {
+        formData.append("folder", currentFolder);
       }
 
-      setStatus({
-        type: "success",
-        text: "Files uploaded securely!",
-      });
-      setFileList([]);
-      fileInputRef.current && (fileInputRef.current.value = "");
-      folderInputRef.current && (folderInputRef.current.value = "");
-
-    } catch (err) {
-      console.error(err);
-      setStatus({
-        type: "error",
-        text: "Encryption or upload failed.",
-      });
-    } finally {
-      setUploading(false);
+      await api.post("/files/upload", formData);
     }
-  };
+
+    setStatus({ type: "success", text: "Files uploaded securely!" });
+    setFileList([]);
+    fileInputRef.current && (fileInputRef.current.value = "");
+    folderInputRef.current && (folderInputRef.current.value = "");
+
+  } catch (err) {
+    console.error(err);
+    setStatus({ type: "error", text: "Encryption or upload failed." });
+  } finally {
+    setUploading(false);
+  }
+};
 
 
   return (

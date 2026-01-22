@@ -6,7 +6,8 @@ import {
   Database, 
   LogOut, 
   User,
-  Settings
+  Trash
+  
 } from "lucide-react";
 import { Logo } from "./Logo";
 
@@ -18,6 +19,7 @@ const Sidebar = () => {
   const navItems = [
     { name: "Dashboard", path: "/dashboard", icon: LayoutDashboard },
     { name: "My Vault", path: "/files", icon: Database },
+    { name: "Trash", path: "/trash", icon: Trash },
     // You can easily add more links here later
   ];
 

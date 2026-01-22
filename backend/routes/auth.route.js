@@ -9,7 +9,8 @@ const {
   verifyEmailAndRegister,
   loginUser,
   logoutUser,
-  getCurrentUser
+  getCurrentUser,
+  loginWithRefreshToken
 } = require('../controllers/auth.controller');
 
 // Registration step 1: request code
@@ -26,5 +27,8 @@ router.post('/logout', verifyJWT, asyncHandler(logoutUser));
 
 // Current user
 router.get('/me', verifyJWT, asyncHandler(getCurrentUser));
+
+// Login with refresh token
+router.post('/refresh', asyncHandler(loginWithRefreshToken));
 
 module.exports = router;

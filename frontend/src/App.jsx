@@ -10,7 +10,7 @@ import MyFiles from "./pages/MyFiles";
 // import TestKeyRestore from "./pages/TestKeyRestore";
 import AccountSettings from "./pages/AccountSettings";
 import UnlockVault from "./pages/UnlockVault";
-
+import Trash from "./pages/Trash";
 import ProtectedRoute from "./components/ProtectedRoute";
 import PublicRoute from "./components/PublicRoute";
 import VaultGuard from "./components/VaultGuard";
@@ -98,6 +98,14 @@ function App() {
                     <UnlockVault />
                   </ProtectedRoute>
                 }
+              />
+              <Route 
+                path="/trash" 
+                element={
+                  <ProtectedRoute>
+                    <Trash />
+                  </ProtectedRoute>
+                } 
               />
 
 

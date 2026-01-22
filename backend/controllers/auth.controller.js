@@ -189,7 +189,9 @@ exports.getCurrentUser = async (req, res, next) => {
 };
 
 
-
+// @desc Login with refresh token
+// @route POST /api/auth/refresh
+// @access Public
 exports.loginWithRefreshToken = async (req, res, next) => {
   try {
     // Read refresh token from cookies instead of body

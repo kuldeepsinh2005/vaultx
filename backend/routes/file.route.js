@@ -8,6 +8,7 @@ const {
   getMyFiles,
   downloadFile,
   moveFile,
+  deleteFile
 } = require("../controllers/file.controller");
 
 // Storage config
@@ -25,5 +26,6 @@ router.get("/my", verifyJWT, getMyFiles);
 
 router.get("/download/:id", verifyJWT, downloadFile);
 router.patch("/:id/move", verifyJWT, moveFile);
+router.patch("/:id/delete", verifyJWT, deleteFile);
 
 module.exports = router;
