@@ -112,6 +112,19 @@ exports.moveFolder = async (req, res) => {
     const { parent } = req.body;
     const folderId = req.params.id;
 
+    // ✅ NEW: Prevent moving into deleted / invalid folder
+    const target = parent
+      ? await Folder.findOne({
+          _id: parent,
+          owner: req.user._id,
+          isDeleted: false,
+        })
+      : null;
+
+    if (parent && !target) {
+      return res.status(400).json({ error: "Invalid target folder" });
+    }
+
     // Prevent self-parenting
     if (folderId === parent) {
       return res.status(400).json({ error: "Cannot move folder into itself" });
@@ -236,17 +249,37 @@ exports.getFolderTree = async (req, res) => {
   };
 
   // Soft delete folder (move to trash)
-const softDeleteFolder = async (folderId, userId) => {
-  await Folder.findOneAndUpdate(
-    { _id: folderId, owner: userId },
-    { isDeleted: true, deletedAt: new Date() }
-  );
+const softDeleteFolder = async (folderId, userId, user) => {
+  const storage = getStorageProvider();
 
-  await File.updateMany(
-    { folder: folderId, owner: userId },
-    { isDeleted: true, deletedAt: new Date() }
-  );
+  // 1️⃣ Get all files in this folder
+  const files = await File.find({
+    folder: folderId,
+    owner: userId,
+    isDeleted: false,
+  });
 
+  let totalFreedSize = 0;
+
+  for (const file of files) {
+    // Delete from storage (S3 or local)
+    await storage.delete(file.storagePath);
+
+    totalFreedSize += file.size;
+
+    file.isDeleted = true;
+    file.deletedAt = new Date();
+    await file.save();
+  }
+
+  // 2️⃣ Update user's usedStorage ONCE
+  if (totalFreedSize > 0) {
+    await user.updateOne({
+      $inc: { usedStorage: -totalFreedSize },
+    });
+  }
+
+  // 3️⃣ Recurse into subfolders
   const children = await Folder.find({
     parent: folderId,
     owner: userId,
@@ -254,19 +287,30 @@ const softDeleteFolder = async (folderId, userId) => {
   });
 
   for (const child of children) {
-    await softDeleteFolder(child._id, userId);
+    await softDeleteFolder(child._id, userId, user);
   }
+
+  // 4️⃣ Soft delete folder itself
+  await Folder.findOneAndUpdate(
+    { _id: folderId, owner: userId },
+    { isDeleted: true, deletedAt: new Date() }
+  );
 };
+
+
+
 
 exports.deleteFolder = async (req, res) => {
   try {
-    await softDeleteFolder(req.params.id, req.user._id);
+    await softDeleteFolder(req.params.id, req.user._id, req.user);
     res.json({ success: true });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Folder delete failed" });
   }
 };
+
+
 // GET /api/folders/:id/count
 exports.getFolderCount = async (req, res) => {
   try {
