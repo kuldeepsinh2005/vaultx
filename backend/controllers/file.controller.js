@@ -3,6 +3,7 @@ const File = require("../models/File.model");
 const { getStorageProvider } = require("../storage");
 const { ensureFolderPath } = require("../utils/folderHelper");
 const mongoose = require("mongoose");
+const StorageUsage = require("../models/StorageUsage.model");
 
 // Upload encrypted file
 exports.uploadFile = async (req, res) => {
@@ -73,6 +74,15 @@ exports.uploadFile = async (req, res) => {
     // 📊 UPDATE STORAGE USAGE
     user.usedStorage += result.size;
     await user.save();
+
+    await StorageUsage.create({
+      user: user._id,
+      file: fileDoc._id,
+      size: result.size,
+      effectiveFrom: new Date(),
+      effectiveTo: null, // still stored
+    });
+
 
     res.status(201).json({
       success: true,
@@ -170,6 +180,8 @@ exports.deleteFile = async (req, res) => {
     file.isDeleted = true;
     file.deletedAt = new Date();
     await file.save();
+    
+
 
     // ❌ DO NOT delete from S3 here
     // ❌ DO NOT update usedStorage here

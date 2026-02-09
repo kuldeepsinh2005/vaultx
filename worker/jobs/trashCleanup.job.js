@@ -5,6 +5,9 @@ const mongoose = require("mongoose");
 const Folder = require("../models/Folder.model");
 const File = require("../models/File.model");
 const { getStorageProvider } = require("../storage");
+const User = require("../models/User.model");
+const StorageUsage = require("../models/StorageUsage.model");
+
 
 const TRASH_TTL_MS  = 10 * 1000;
 const BATCH_SIZE = 10;
@@ -30,19 +33,35 @@ cron.schedule("*/1 * * * *", async () => {
     .limit(BATCH_SIZE);
 
 
-    for (const file of expiredFiles) {
+   for (const file of expiredFiles) {
       try {
-        console.log(`Attempting to delete file: ${file.storagePath}`); 
+        console.log(`Deleting file from storage: ${file.storagePath}`);
+
+        // 1️⃣ Delete from storage (source of truth)
         await storage.delete(file.storagePath);
-        await file.deleteOne();
+
+        // 2️⃣ Stop billing
+        await StorageUsage.findOneAndUpdate(
+          { file: file._id, effectiveTo: null },
+          { effectiveTo: new Date() }
+        );
+
+        // 3️⃣ Free quota
+        await User.findByIdAndUpdate(file.owner, {
+          $inc: { usedStorage: -file.size },
+        });
+
+        // 4️⃣ Delete DB record
+        await File.deleteOne({ _id: file._id });
+
       } catch (err) {
-        if (err.code !== 'ENOENT') {
+        if (err.code !== "ENOENT") {
           console.error(`Storage delete failed for ${file._id}:`, err.message);
         }
-        await file.deleteOne(); // DB cleanup regardless
+        // ❌ DO NOT stop billing or free quota if storage delete failed
       }
-
     }
+
 
     /* 2. PROCESS EXPIRED FOLDERS */
     const expiredFolders = await Folder.find({
@@ -63,7 +82,7 @@ cron.schedule("*/1 * * * *", async () => {
 async function deleteFolderForever(folderId, ownerId) {
   const storage = getStorageProvider();
 
-  // 1️⃣ Delete files in this folder (trash only)
+  // 1️⃣ Delete files in this folder
   const files = await File.find({
     folder: folderId,
     owner: ownerId,
@@ -73,13 +92,25 @@ async function deleteFolderForever(folderId, ownerId) {
   for (const file of files) {
     try {
       await storage.delete(file.storagePath);
-    }catch (err) {
+
+      // Stop billing
+      await StorageUsage.findOneAndUpdate(
+        { file: file._id, effectiveTo: null },
+        { effectiveTo: new Date() }
+      );
+
+      // Free quota
+      await User.findByIdAndUpdate(file.owner, {
+        $inc: { usedStorage: -file.size },
+      });
+
+      // Delete DB record
+      await File.deleteOne({ _id: file._id });
+
+    } catch (err) {
       if (err.code !== "ENOENT") {
         console.error(`Storage delete failed for ${file._id}:`, err.message);
       }
-      await file.deleteOne(); // always clean DB
-    } finally {
-      await file.deleteOne();
     }
   }
 
@@ -94,7 +125,7 @@ async function deleteFolderForever(folderId, ownerId) {
     await deleteFolderForever(child._id, ownerId);
   }
 
-  // 3️⃣ Delete the folder itself (trash only)
+  // 3️⃣ Delete folder metadata
   await Folder.deleteOne({
     _id: folderId,
     owner: ownerId,

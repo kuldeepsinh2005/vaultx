@@ -67,5 +67,8 @@ FileSchema.index(
   { deletedAt: 1 },
   { expireAfterSeconds: 30  } 
 );
+FileSchema.index({ owner: 1, isDeleted: 1 });
+
+
 // 60 * 60 * 24 * 30
 module.exports = mongoose.model("File", FileSchema);

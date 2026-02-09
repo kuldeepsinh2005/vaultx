@@ -1,3 +1,4 @@
+// frontend/src/components/layout/Sidebar.jsx
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
@@ -6,7 +7,8 @@ import {
   Database, 
   LogOut, 
   User,
-  Trash
+  Trash,
+  CreditCard
   
 } from "lucide-react";
 import { Logo } from "./Logo";
@@ -19,9 +21,10 @@ const Sidebar = () => {
   const navItems = [
     { name: "Dashboard", path: "/dashboard", icon: LayoutDashboard },
     { name: "My Vault", path: "/files", icon: Database },
+    { name: "Billing & Usage", path: "/billing", icon: CreditCard }, 
     { name: "Trash", path: "/trash", icon: Trash },
-    // You can easily add more links here later
   ];
+
 
   return (
     <aside className="w-20 lg:w-64 bg-slate-950/50 backdrop-blur-xl border-r border-slate-800/50 flex flex-col items-center lg:items-start transition-all z-50">

@@ -10,6 +10,7 @@ const {
   moveFile,
   deleteFile
 } = require("../controllers/file.controller");
+const { enforceUploadAllowed } = require("../middleware/billing.middleware");
 
 // Storage config
 const upload = multer({ storage: multer.memoryStorage() });
@@ -18,13 +19,14 @@ const upload = multer({ storage: multer.memoryStorage() });
 router.post(
   "/upload",
   verifyJWT,
+  enforceUploadAllowed,  
   upload.single("file"),
   uploadFile
 );
 
 router.get("/my", verifyJWT, getMyFiles);
 
-router.get("/download/:id", verifyJWT, downloadFile);
+router.get("/download/:id", verifyJWT, enforceUploadAllowed,downloadFile);
 router.patch("/:id/move", verifyJWT, moveFile);
 router.patch("/:id/delete", verifyJWT, deleteFile);
 

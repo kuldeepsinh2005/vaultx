@@ -2,6 +2,8 @@
 const File = require("../models/File.model");
 const Folder = require("../models/Folder.model");
 const { getStorageProvider } = require("../storage");
+const StorageUsage = require("../models/StorageUsage.model");
+const User = require("../models/User.model");
 
 
 
@@ -68,6 +70,7 @@ exports.restoreFile = async (req, res) => {
     { _id: req.params.id, owner: req.user._id },
     { isDeleted: false, deletedAt: null }
   );
+
   res.json({ success: true });
 };
 
@@ -94,8 +97,6 @@ exports.restoreFolder = async (req, res) => {
   res.json({ success: true });
 };
 
-
-// Permanent delete
 exports.permanentDeleteFile = async (req, res) => {
   const file = await File.findOne({
     _id: req.params.id,
@@ -110,23 +111,37 @@ exports.permanentDeleteFile = async (req, res) => {
   const storage = getStorageProvider();
 
   try {
+    // 1️⃣ Delete from storage (source of truth)
     await storage.delete(file.storagePath);
+
+    // 2️⃣ Stop billing
+    await StorageUsage.findOneAndUpdate(
+      { file: file._id, effectiveTo: null },
+      { effectiveTo: new Date() }
+    );
+
+    // 3️⃣ Free quota
+    await User.findByIdAndUpdate(file.owner, {
+      $inc: { usedStorage: -file.size },
+    });
+
+    // 4️⃣ Delete DB record
+    await File.deleteOne({ _id: file._id });
+
+    res.json({ success: true });
+
   } catch (err) {
     if (err.code !== "ENOENT") {
-      console.error("S3 delete failed:", err.message);
+      console.error("Storage delete failed:", err.message);
     }
+    return res.status(500).json({ error: "Permanent delete failed" });
   }
-
-  await File.deleteOne({ _id: file._id });
-
-  res.json({ success: true });
 };
 
 
 const permanentDeleteFolderRecursive = async (folderId, userId) => {
   const storage = getStorageProvider();
 
-  // 1. Delete files in this folder
   const files = await File.find({
     folder: folderId,
     owner: userId,
@@ -135,16 +150,30 @@ const permanentDeleteFolderRecursive = async (folderId, userId) => {
 
   for (const file of files) {
     try {
+      // 1️⃣ Delete from storage
       await storage.delete(file.storagePath);
+
+      // 2️⃣ Stop billing
+      await StorageUsage.findOneAndUpdate(
+        { file: file._id, effectiveTo: null },
+        { effectiveTo: new Date() }
+      );
+
+      // 3️⃣ Free quota
+      await User.findByIdAndUpdate(file.owner, {
+        $inc: { usedStorage: -file.size },
+      });
+
+      // 4️⃣ Delete DB record
+      await File.deleteOne({ _id: file._id });
+
     } catch (err) {
       if (err.code !== "ENOENT") {
-        console.error("S3 delete failed:", err.message);
+        console.error("Storage delete failed:", err.message);
       }
     }
-    await File.deleteOne({ _id: file._id });
   }
 
-  // 2. Recurse into subfolders
   const children = await Folder.find({
     parent: folderId,
     owner: userId,
@@ -155,7 +184,6 @@ const permanentDeleteFolderRecursive = async (folderId, userId) => {
     await permanentDeleteFolderRecursive(child._id, userId);
   }
 
-  // 3. Delete folder metadata
   await Folder.deleteOne({
     _id: folderId,
     owner: userId,

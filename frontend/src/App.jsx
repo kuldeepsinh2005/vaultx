@@ -11,6 +11,8 @@ import MyFiles from "./pages/MyFiles";
 import AccountSettings from "./pages/AccountSettings";
 import UnlockVault from "./pages/UnlockVault";
 import Trash from "./pages/Trash";
+import Billing from "./pages/Billing";
+
 import ProtectedRoute from "./components/ProtectedRoute";
 import PublicRoute from "./components/PublicRoute";
 import VaultGuard from "./components/VaultGuard";
@@ -108,6 +110,14 @@ function App() {
                 } 
               />
 
+              <Route
+                path="/billing"
+                element={
+                  <ProtectedRoute>
+                    <Billing />
+                  </ProtectedRoute>
+                }
+              />
 
 
               {/* 🛸 Catch-all Route */}
