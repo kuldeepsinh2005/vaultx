@@ -249,37 +249,21 @@ exports.getFolderTree = async (req, res) => {
   };
 
   // Soft delete folder (move to trash)
-const softDeleteFolder = async (folderId, userId, user) => {
-  const storage = getStorageProvider();
-
-  // 1️⃣ Get all files in this folder
+const softDeleteFolder = async (folderId, userId) => {
+  // 1️⃣ Soft delete files in this folder
   const files = await File.find({
     folder: folderId,
     owner: userId,
     isDeleted: false,
   });
 
-  let totalFreedSize = 0;
-
   for (const file of files) {
-    // Delete from storage (S3 or local)
-    await storage.delete(file.storagePath);
-
-    totalFreedSize += file.size;
-
     file.isDeleted = true;
     file.deletedAt = new Date();
     await file.save();
   }
 
-  // 2️⃣ Update user's usedStorage ONCE
-  if (totalFreedSize > 0) {
-    await user.updateOne({
-      $inc: { usedStorage: -totalFreedSize },
-    });
-  }
-
-  // 3️⃣ Recurse into subfolders
+  // 2️⃣ Recurse into subfolders
   const children = await Folder.find({
     parent: folderId,
     owner: userId,
@@ -287,17 +271,15 @@ const softDeleteFolder = async (folderId, userId, user) => {
   });
 
   for (const child of children) {
-    await softDeleteFolder(child._id, userId, user);
+    await softDeleteFolder(child._id, userId);
   }
 
-  // 4️⃣ Soft delete folder itself
+  // 3️⃣ Soft delete folder itself
   await Folder.findOneAndUpdate(
     { _id: folderId, owner: userId },
     { isDeleted: true, deletedAt: new Date() }
   );
 };
-
-
 
 
 exports.deleteFolder = async (req, res) => {

@@ -153,6 +153,7 @@ exports.moveFile = async (req, res) => {
 };
 
 // PATCH /api/files/:id/delete
+// PATCH /api/files/:id/delete
 exports.deleteFile = async (req, res) => {
   try {
     const file = await File.findOne({
@@ -165,20 +166,13 @@ exports.deleteFile = async (req, res) => {
       return res.status(404).json({ error: "File not found" });
     }
 
-    const storage = getStorageProvider();
-
-    // ☁️ DELETE FROM STORAGE (S3 / LOCAL)
-    await storage.delete(file.storagePath);
-
-    // 📊 UPDATE STORAGE USAGE
-    req.user.usedStorage -= file.size;
-    if (req.user.usedStorage < 0) req.user.usedStorage = 0;
-    await req.user.save();
-
-    // 🗑️ SOFT DELETE IN DB
+    // 🗑️ SOFT DELETE ONLY
     file.isDeleted = true;
     file.deletedAt = new Date();
     await file.save();
+
+    // ❌ DO NOT delete from S3 here
+    // ❌ DO NOT update usedStorage here
 
     res.json({ success: true });
 
@@ -187,6 +181,7 @@ exports.deleteFile = async (req, res) => {
     res.status(500).json({ error: "File delete failed" });
   }
 };
+
 
 
 /*

@@ -1,3 +1,4 @@
+// backend/models/File.model.js
 const mongoose = require("mongoose");
 
 const FileSchema = new mongoose.Schema(
@@ -45,9 +46,14 @@ const FileSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    iv: {
+      type: String,
+      required: true
+    },
     isDeleted: {
       type: Boolean,
       default: false,
+      index: true,
     },
     deletedAt: {
       type: Date,

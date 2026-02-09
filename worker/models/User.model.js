@@ -24,6 +24,20 @@ const UserSchema = new mongoose.Schema({
     required: false,
   },
 
+  usedStorage: { 
+    type: Number, 
+    default: 0 
+  },   // bytes
+  maxStorage: { 
+    type: Number, 
+    default: 100 * 1024 * 1024 
+  }, // 100MB
+  plan: { 
+    type: String, 
+    default: "FREE" 
+  },
+  
+
 
 
 }, {

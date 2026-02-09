@@ -1,6 +1,7 @@
 // backend/controllers/trash.controller.js
 const File = require("../models/File.model");
 const Folder = require("../models/Folder.model");
+const { getStorageProvider } = require("../storage");
 
 
 
@@ -96,27 +97,70 @@ exports.restoreFolder = async (req, res) => {
 
 // Permanent delete
 exports.permanentDeleteFile = async (req, res) => {
-  await File.deleteOne({ _id: req.params.id, owner: req.user._id });
+  const file = await File.findOne({
+    _id: req.params.id,
+    owner: req.user._id,
+    isDeleted: true,
+  });
+
+  if (!file) {
+    return res.status(404).json({ error: "File not found in trash" });
+  }
+
+  const storage = getStorageProvider();
+
+  try {
+    await storage.delete(file.storagePath);
+  } catch (err) {
+    if (err.code !== "ENOENT") {
+      console.error("S3 delete failed:", err.message);
+    }
+  }
+
+  await File.deleteOne({ _id: file._id });
+
   res.json({ success: true });
 };
 
+
 const permanentDeleteFolderRecursive = async (folderId, userId) => {
-  // 1. Delete all files inside this folder
-  const files = await File.find({ folder: folderId, owner: userId });
+  const storage = getStorageProvider();
+
+  // 1. Delete files in this folder
+  const files = await File.find({
+    folder: folderId,
+    owner: userId,
+    isDeleted: true,
+  });
+
   for (const file of files) {
+    try {
+      await storage.delete(file.storagePath);
+    } catch (err) {
+      if (err.code !== "ENOENT") {
+        console.error("S3 delete failed:", err.message);
+      }
+    }
     await File.deleteOne({ _id: file._id });
   }
 
-  // 2. Find all subfolders
-  const children = await Folder.find({ parent: folderId, owner: userId });
+  // 2. Recurse into subfolders
+  const children = await Folder.find({
+    parent: folderId,
+    owner: userId,
+    isDeleted: true,
+  });
 
-  // 3. Recursively delete subfolders
   for (const child of children) {
     await permanentDeleteFolderRecursive(child._id, userId);
   }
 
-  // 4. Finally delete this folder
-  await Folder.deleteOne({ _id: folderId, owner: userId });
+  // 3. Delete folder metadata
+  await Folder.deleteOne({
+    _id: folderId,
+    owner: userId,
+    isDeleted: true,
+  });
 };
 
 exports.permanentDeleteFolder = async (req, res) => {

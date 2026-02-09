@@ -1,4 +1,3 @@
-// backend/storage/S3StorageProvider.js
 const StorageProvider = require("./StorageProvider");
 const { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } = require("@aws-sdk/client-s3");
 
