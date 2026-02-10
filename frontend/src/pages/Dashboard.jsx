@@ -93,8 +93,29 @@ const Dashboard = () => {
     folderInputRef.current && (folderInputRef.current.value = "");
 
   } catch (err) {
+        if (
+      err.response?.status === 403 &&
+      err.response?.data?.code === "BILLING_UNPAID"
+    ) {
+      setStatus({
+        type: "error",
+        text: "Upload blocked due to unpaid bill. Please clear your dues.",
+      });
+
+      // optional: redirect after short delay
+      setTimeout(() => {
+        navigate("/account"); // or /billing if you add that page
+      }, 2000);
+
+      return;
+    }
+
     console.error(err);
-    setStatus({ type: "error", text: "Encryption or upload failed." });
+    setStatus({
+      type: "error",
+      text: "Encryption or upload failed.",
+    });
+
   } finally {
     setUploading(false);
   }

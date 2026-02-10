@@ -11,6 +11,23 @@ const Billing = () => {
   const [usage, setUsage] = useState(null);
   const [history, setHistory] = useState([]);
   const [error, setError] = useState("");
+  const [selectedPeriod, setSelectedPeriod] = useState(null);
+  const [breakdown, setBreakdown] = useState([]);
+  const [loadingBreakdown, setLoadingBreakdown] = useState(false);
+
+  const loadBreakdown = async (period) => {
+    try {
+      setLoadingBreakdown(true);
+      const res = await api.get(`/billing/breakdown?period=${period}`);
+      setBreakdown(res.data.breakdown);
+      setSelectedPeriod(period);
+    } catch (err) {
+      alert("Failed to load usage breakdown");
+    } finally {
+      setLoadingBreakdown(false);
+    }
+  };
+
 
   useEffect(() => {
     const fetchBilling = async () => {
@@ -121,6 +138,7 @@ const Billing = () => {
                     <th className="text-left py-2">Period</th>
                     <th className="text-left py-2">Amount</th>
                     <th className="text-left py-2">Status</th>
+                    <th className="text-left py-2">Details</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -135,6 +153,15 @@ const Billing = () => {
                           <span className="text-yellow-400">UNPAID</span>
                         )}
                       </td>
+                      <td className="py-2">
+                        <button
+                          onClick={() => loadBreakdown(bill.period)}
+                          className="text-indigo-400 hover:underline text-xs font-bold"
+                        >
+                          View Usage
+                        </button>
+                      </td>
+
                     </tr>
                   ))}
                 </tbody>
@@ -143,6 +170,58 @@ const Billing = () => {
 
           </div>
         </div>
+        {selectedPeriod && (
+  <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+    <div className="bg-slate-900 w-full max-w-3xl rounded-2xl p-6 border border-slate-800">
+      <div className="flex justify-between items-center mb-4">
+        <h3 className="font-bold">
+          Usage Breakdown — {selectedPeriod}
+        </h3>
+        <button
+          onClick={() => {
+            setSelectedPeriod(null);
+            setBreakdown([]);
+          }}
+          className="text-slate-400 hover:text-white"
+        >
+          ✕
+        </button>
+      </div>
+
+        {loadingBreakdown ? (
+          <div className="flex justify-center py-10">
+            <Loader2 className="animate-spin text-indigo-500" />
+          </div>
+        ) : breakdown.length === 0 ? (
+          <p className="text-slate-400 text-sm">
+            No billable usage for this period.
+          </p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead className="text-slate-500 border-b border-slate-800">
+              <tr>
+                <th className="text-left py-2">File</th>
+                <th className="text-left py-2">Size (MB)</th>
+                <th className="text-left py-2">Days Stored</th>
+                <th className="text-left py-2">MB-Days</th>
+              </tr>
+            </thead>
+            <tbody>
+              {breakdown.map((b, idx) => (
+                <tr key={idx} className="border-b border-slate-800/50">
+                  <td className="py-2">{b.fileName}</td>
+                  <td className="py-2">{b.sizeMB}</td>
+                  <td className="py-2">{b.daysStored}</td>
+                  <td className="py-2">{b.mbDays}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  )}
+
       </main>
     </div>
   );

@@ -218,8 +218,16 @@ const MyFiles = () => {
 
       URL.revokeObjectURL(url);
     } catch (err) {
-      console.error("Decryption Error Details:", err);
-      alert(`Decryption failed: ${err.message}`);
+          if (
+          err.response?.status === 403 &&
+          err.response?.data?.code === "BILLING_UNPAID"
+        ) {
+          alert("Download blocked due to unpaid bill. Please clear your dues.");
+          navigate("/account");
+          return;
+        }
+
+        alert(`Decryption failed: ${err.message}`);
     } finally {
       setDecryptingId(null);
     }

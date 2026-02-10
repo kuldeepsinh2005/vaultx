@@ -1,50 +1,26 @@
+// backend/models/Billing.model.js
 const mongoose = require("mongoose");
-
 const BillingSchema = new mongoose.Schema(
   {
-    user: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
-      index: true,
-    },
+    user: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
 
-    period: {
-      type: String, // YYYY-MM
-      required: true,
-      index: true,
-    },
+    period: { type: String, required: true, index: true }, // YYYY-MM
 
-    plan: {
-      type: String,
-      required: true,
-    },
+    plan: { type: String, required: true },
 
-    storageUsed: {
-      type: Number, // bytes
-      required: true,
-    },
+    // 🔴 keep for backward compatibility
+    storageUsed: { type: Number, required: true }, // bytes (snapshot)
 
-    amount: {
-      type: Number, // INR
-      required: true,
-    },
+    // ✅ ADD THESE
+    mbDays: { type: Number, required: true },      // MB-days for the period
+    averageStorageMB: { type: Number, required: true },
 
-    status: {
-      type: String,
-      enum: ["PAID", "UNPAID"],
-      default: "UNPAID",
-    },
+    amount: { type: Number, required: true },      // INR
 
-    paidAt: {
-      type: Date,
-      default: null,
-    },
+    status: { type: String, enum: ["PAID", "UNPAID"], default: "UNPAID" },
+    paidAt: { type: Date, default: null },
   },
   { timestamps: true }
 );
-
-// one bill per user per month
 BillingSchema.index({ user: 1, period: 1 }, { unique: true });
-
 module.exports = mongoose.model("Billing", BillingSchema);
