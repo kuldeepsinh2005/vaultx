@@ -116,15 +116,18 @@ const Billing = () => {
                   </p>
                 </div>
 
-                {usage.billing.status === "PAID" ? (
-                  <span className="flex items-center gap-2 text-emerald-400 font-bold">
-                    <CheckCircle size={18} /> PAID
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-2 text-yellow-400 font-bold">
-                    <AlertTriangle size={18} /> UNPAID
-                  </span>
+                {usage.billing.status === "PAID" && (
+                  <span className="text-emerald-400">PAID</span>
                 )}
+
+                {usage.billing.status === "PENDING" && (
+                  <span className="text-indigo-400">IN PROGRESS</span>
+                )}
+
+                {usage.billing.status === "UNPAID" && (
+                  <span className="text-yellow-400">PAYMENT REQUIRED</span>
+                )}
+
               </div>
             </div>
 
@@ -147,12 +150,21 @@ const Billing = () => {
                       <td className="py-2">{bill.period}</td>
                       <td className="py-2">₹{bill.amount}</td>
                       <td className="py-2">
-                        {bill.status === "PAID" ? (
-                          <span className="text-emerald-400">PAID</span>
-                        ) : (
-                          <span className="text-yellow-400">UNPAID</span>
+                        {bill.status === "PAID" && (
+                          <span className="text-emerald-400 font-semibold">PAID</span>
+                        )}
+
+                        {bill.status === "UNPAID" && (
+                          <span className="text-yellow-400 font-semibold">UNPAID</span>
+                        )}
+
+                        {bill.status === "PENDING" && (
+                          <span className="text-indigo-400 font-semibold">
+                            IN PROGRESS
+                          </span>
                         )}
                       </td>
+
                       <td className="py-2">
                         <button
                           onClick={() => loadBreakdown(bill.period)}
@@ -172,54 +184,56 @@ const Billing = () => {
         </div>
         {selectedPeriod && (
   <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-    <div className="bg-slate-900 w-full max-w-3xl rounded-2xl p-6 border border-slate-800">
-      <div className="flex justify-between items-center mb-4">
-        <h3 className="font-bold">
-          Usage Breakdown — {selectedPeriod}
-        </h3>
-        <button
-          onClick={() => {
-            setSelectedPeriod(null);
-            setBreakdown([]);
-          }}
-          className="text-slate-400 hover:text-white"
-        >
-          ✕
-        </button>
-      </div>
+    <div className="bg-slate-900 w-full max-w-3xl max-h-[80vh] rounded-2xl border border-slate-800 flex flex-col">
+        <div className="flex justify-between items-center p-6 border-b border-slate-800">
+          <h3 className="font-bold">
+            Usage Breakdown — {selectedPeriod}
+          </h3>
+          <button
+            onClick={() => {
+              setSelectedPeriod(null);
+              setBreakdown([]);
+            }}
+            className="text-slate-400 hover:text-white"
+          >
+            ✕
+          </button>
+        </div>
 
-        {loadingBreakdown ? (
-          <div className="flex justify-center py-10">
-            <Loader2 className="animate-spin text-indigo-500" />
-          </div>
-        ) : breakdown.length === 0 ? (
-          <p className="text-slate-400 text-sm">
-            No billable usage for this period.
-          </p>
-        ) : (
-          <table className="w-full text-sm">
-            <thead className="text-slate-500 border-b border-slate-800">
-              <tr>
-                <th className="text-left py-2">File</th>
-                <th className="text-left py-2">Size (MB)</th>
-                <th className="text-left py-2">Days Stored</th>
-                <th className="text-left py-2">MB-Days</th>
-              </tr>
-            </thead>
-            <tbody>
-              {breakdown.map((b, idx) => (
-                <tr key={idx} className="border-b border-slate-800/50">
-                  <td className="py-2">{b.fileName}</td>
-                  <td className="py-2">{b.sizeMB}</td>
-                  <td className="py-2">{b.daysStored}</td>
-                  <td className="py-2">{b.mbDays}</td>
+        <div className="flex-1 overflow-y-auto p-6">
+          {loadingBreakdown ? (
+            <div className="flex justify-center py-10">
+              <Loader2 className="animate-spin text-indigo-500" />
+            </div>
+          ) : breakdown.length === 0 ? (
+            <p className="text-slate-400 text-sm">
+              No billable usage for this period.
+            </p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="text-slate-500 border-b border-slate-800 sticky top-0 bg-slate-900">
+                <tr>
+                  <th className="text-left py-2">File</th>
+                  <th className="text-left py-2">Size (MB)</th>
+                  <th className="text-left py-2">Days Stored</th>
+                  <th className="text-left py-2">MB-Days</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+              </thead>
+              <tbody>
+                {breakdown.map((b, idx) => (
+                  <tr key={idx} className="border-b border-slate-800/50">
+                    <td className="py-2">{b.fileName}</td>
+                    <td className="py-2">{b.sizeMB}</td>
+                    <td className="py-2">{b.daysStored}</td>
+                    <td className="py-2">{b.mbDays}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
     </div>
+  </div>
   )}
 
       </main>

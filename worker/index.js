@@ -10,6 +10,7 @@ async function init() {
 
     // 2. Start the job ONLY after connection is successful
     require("./jobs/trashCleanup.job");
+    require("./jobs/monthlyBilling.job");
     console.log("🚀 VaultX worker started");
   } catch (err) {
     console.error("❌ Worker failed to connect to DB:", err);

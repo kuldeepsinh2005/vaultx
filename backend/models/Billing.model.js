@@ -17,7 +17,12 @@ const BillingSchema = new mongoose.Schema(
 
     amount: { type: Number, required: true },      // INR
 
-    status: { type: String, enum: ["PAID", "UNPAID"], default: "UNPAID" },
+    status: {
+      type: String,
+      enum: ["PENDING", "UNPAID", "PAID"],
+      default: "PENDING",
+    },
+
     paidAt: { type: Date, default: null },
   },
   { timestamps: true }

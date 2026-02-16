@@ -29,6 +29,13 @@ const StorageUsageSchema = new mongoose.Schema(
       type: Date,
       default: null, // null means still stored
     },
+
+    lastBilledAt: {
+      type: Date,
+      default: Date.now
+    }
+
+
   },
   { timestamps: true }
 );

@@ -3,6 +3,11 @@ const Billing = require("../models/Billing.model");
 const { generateMonthlyBill } = require("../utils/billing.generator");
 const { getOutstandingBalance } = require("../utils/billing.status");
 const { calculateUsageBreakdown } = require("../utils/billingCalculator");
+const { accumulateLiveUsage } = require("../utils/liveUsageAccumulator");
+const CurrentUsage = require("../models/CurrentUsage.model");
+const { PRICE_PER_MB_HOUR } = require("../config/billing.config");
+
+
 const currentPeriod = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -10,10 +15,15 @@ const currentPeriod = () => {
 
 // 🔹 Usage + current bill summary
 exports.getUsage = async (req, res) => {
-  const bill = await generateMonthlyBill(
-    req.user._id,
-    currentPeriod()
+  const period = currentPeriod();
+
+  // 🔥 accumulate new usage before returning
+  const usageData = await accumulateLiveUsage(req.user._id);
+
+  const amount = Number(
+    (usageData.mbHoursAccumulated * PRICE_PER_MB_HOUR).toFixed(2)
   );
+
   const outstanding = await getOutstandingBalance(req.user._id);
 
   res.json({
@@ -21,13 +31,15 @@ exports.getUsage = async (req, res) => {
     usedStorage: req.user.usedStorage,
     maxStorage: req.user.maxStorage,
     billing: {
-      period: bill.period,
-      amount: bill.amount,
-      status: bill.status,
+      period,
+      mbHours: usageData.mbHoursAccumulated.toFixed(4),
+      amount,
+      status: "PENDING",
       outstanding,
     },
   });
 };
+
 
 // 🔹 Billing history
 exports.getHistory = async (req, res) => {
