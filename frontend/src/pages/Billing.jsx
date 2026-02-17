@@ -28,6 +28,34 @@ const Billing = () => {
     }
   };
 
+  const handlePayment = async (billId) => {
+    try {
+      const res = await api.post("/billing/create-checkout-session", { billId });
+      if (res.data.url) {
+        window.location.href = res.data.url; // Redirect to Stripe's secure page
+      }
+    } catch (err) {
+      alert("Failed to initiate payment");
+    }
+  };
+
+  const downloadInvoice = async (billId, period) => {
+    try {
+      const response = await api.get(`/billing/invoice/${billId}`, {
+        responseType: 'blob',
+      });
+      
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `VaultX_Invoice_${period}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (err) {
+      alert("Could not download invoice");
+    }
+  };
 
   useEffect(() => {
     const fetchBilling = async () => {
@@ -126,6 +154,7 @@ const Billing = () => {
 
                 {usage.billing.status === "UNPAID" && (
                   <span className="text-yellow-400">PAYMENT REQUIRED</span>
+                  
                 )}
 
               </div>
@@ -150,12 +179,28 @@ const Billing = () => {
                       <td className="py-2">{bill.period}</td>
                       <td className="py-2">₹{bill.amount}</td>
                       <td className="py-2">
-                        {bill.status === "PAID" && (
-                          <span className="text-emerald-400 font-semibold">PAID</span>
-                        )}
+                        {bill.status === "PAID" ? (
+                            <div className="flex flex-col gap-1">
+                              <span className="text-emerald-400 font-semibold">PAID</span>
+                              <button 
+                                onClick={() => downloadInvoice(bill._id, bill.period)}
+                                className="text-[10px] text-indigo-400 hover:underline font-bold uppercase tracking-tighter"
+                              >
+                                Download PDF
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="text-yellow-400 font-semibold">{bill.status}</span>
+                          )
+                        }
 
                         {bill.status === "UNPAID" && (
-                          <span className="text-yellow-400 font-semibold">UNPAID</span>
+                          <button 
+                              onClick={() => handlePayment(bill._id)} 
+                              className="text-indigo-400 font-bold hover:underline"
+                          >
+                              Pay Now
+                          </button>
                         )}
 
                         {bill.status === "PENDING" && (

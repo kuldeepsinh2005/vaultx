@@ -8,7 +8,7 @@ const http = require('http');
 const logger = require('./utils/logger');
 // require("./jobs/trashCleanup.job");
 // require("./jobs/folderCleanup.job");
-
+const billingController = require('./controllers/billing.controller');
 // --- 1. Initialize Express & HTTP Server ---
 const app = express();
 const server = http.createServer(app);
@@ -19,6 +19,11 @@ app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:8686',
   credentials: true
 }));
+
+app.post('/api/billing/webhook', 
+  express.raw({ type: 'application/json' }), 
+  billingController.handleStripeWebhook
+);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
