@@ -1,110 +1,131 @@
+// worker/jobs/monthlyBilling.job.js
 require("dotenv").config();
 const cron = require("node-cron");
 const mongoose = require("mongoose");
-
-const CurrentUsage = require("../models/CurrentUsage.model");
-const Billing = require("../models/Billing.model");
 const StorageUsage = require("../models/StorageUsage.model");
+const Billing = require("../models/Billing.model");
 const User = require("../models/User.model");
+const CurrentUsage = require("../models/CurrentUsage.model"); 
+const { getDynamicMinThreshold } = require("../utils/billingCalculator");
+
+// ✅ Import config instead of hardcoding
 const { PRICE_PER_MB_HOUR } = require("../config/billing.config");
 
-const MS_PER_HOUR = 1000 * 60 * 60;
-
-function getPreviousMonthPeriod() {
-  const now = new Date();
-  const d = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  return `${d.getFullYear()}-${String(
-    d.getMonth() + 1
-  ).padStart(2, "0")}`;
-}
-
-function getPeriodBounds(period) {
-  const [y, m] = period.split("-").map(Number);
-  return {
-    start: new Date(y, m - 1, 1),
-    end: new Date(y, m, 0, 23, 59, 59, 999),
-  };
-}
-
-// 🔥 For testing use every minute
-// cron.schedule("*/1 * * * *", async () => {
-// 🔥 For production use:
-cron.schedule("0 0 1 * *", async () => {
-
-  console.log("📅 Month-end billing job started");
-
+// Runs at 00:00 on the 1st day of every month
+// cron.schedule("0 0 1 * *", async () => {
+cron.schedule("*/1 * * * *", async () => {
   if (mongoose.connection.readyState !== 1) {
-    console.log("❌ DB not connected");
+    console.log("⏳ Mongo not ready, skipping billing cycle");
     return;
   }
 
-  const period = getPreviousMonthPeriod();
-  // for testing, we can just use the current period to see immediate results
-  // const now = new Date();
-  // const period = `${now.getFullYear()}-${String(
-  //   now.getMonth() + 1
-  // ).padStart(2, "0")}`;
-  
+  try {
+    console.log("💰 Monthly billing cycle started");
+    const users = await User.find({});
 
-  const { end } = getPeriodBounds(period);
-
-  const usages = await CurrentUsage.find({ period });
-
-  for (const usage of usages) {
-
-    const existingBill = await Billing.findOne({
-      user: usage.user,
-      period,
-    });
-
-    if (existingBill) continue;
-
-    // 🔥 Capture remaining hours until month end
-    const activeFiles = await StorageUsage.find({
-      user: usage.user,
-      effectiveTo: null,
-    });
-
-    for (const file of activeFiles) {
-      const lastBilled = file.lastBilledAt || file.effectiveFrom;
-
-      if (lastBilled < end) {
-        const hours = (end - lastBilled) / MS_PER_HOUR;
-
-        if (hours > 0) {
-          const sizeMB = file.size / (1024 * 1024);
-          const mbHours = sizeMB * hours;
-
-          usage.mbHoursAccumulated += mbHours;
-          file.lastBilledAt = end;
-          await file.save();
-        }
-      }
+    for (const user of users) {
+      await processUserBilling(user);
     }
 
-    const amount = Number(
-      (usage.mbHoursAccumulated * PRICE_PER_MB_HOUR).toFixed(2)
-    );
-
-    const user = await User.findById(usage.user);
-
-    await Billing.create({
-      user: usage.user,
-      period,
-      plan: user.plan,
-      storageUsed: user.usedStorage,
-      mbDays: 0,              // legacy field
-      averageStorageMB: 0,    // legacy field
-      amount,
-      status: amount === 0 ? "PAID" : "UNPAID",
-      paidAt: null,
-    });
-
-    // 🔥 Remove live usage after finalizing
-    await CurrentUsage.deleteOne({ _id: usage._id });
-
-    console.log(`✅ Invoice finalized for ${user.username} (${period})`);
+    console.log("✅ Monthly billing cycle complete");
+  } catch (err) {
+    console.error("❌ Monthly billing failed", err);
   }
-
-  console.log("🏁 Month-end billing completed");
 });
+
+async function processUserBilling(user) {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const now = new Date();
+    const userId = user._id;
+    const period = now.toISOString().slice(0, 7); // YYYY-MM
+
+    // 1. Fetch unbilled usage from files (The "Loose" usage)
+    const usageRecords = await StorageUsage.find({ 
+      user: userId, 
+      isBilled: false 
+    }).session(session);
+
+    // 2. Fetch "Accumulated" usage from Dashboard cache (The "Vampire" usage)
+    const currentUsageDoc = await CurrentUsage.findOne({ 
+      user: userId, 
+      period 
+    }).session(session);
+
+    // If absolutely no usage anywhere, skip
+    if (usageRecords.length === 0 && (!currentUsageDoc || currentUsageDoc.mbHoursAccumulated === 0)) {
+      await session.abortTransaction();
+      return;
+    }
+
+    // 3. Combine Metrics
+    let totalMBHours = 0;
+
+    // A) Add usage from the files
+    for (const record of usageRecords) {
+      const startTime = record.lastBilledAt || record.effectiveFrom;
+      const endTime = record.effectiveTo || now;
+      const hours = (endTime - startTime) / (1000 * 60 * 60);
+      const sizeMB = record.size / (1024 * 1024);
+      if (hours > 0) totalMBHours += sizeMB * hours;
+    }
+
+    // B) Add usage from the Dashboard cache ✅
+    if (currentUsageDoc) {
+      totalMBHours += currentUsageDoc.mbHoursAccumulated;
+    }
+
+    // ✅ Use the imported constant from config
+    const totalAmount = totalMBHours * PRICE_PER_MB_HOUR;
+
+    // 4. Threshold Constraint (e.g., ₹45)
+    const minThreshold = await getDynamicMinThreshold();
+    if (totalAmount < minThreshold) {
+      console.log(`[Billing] User ${userId} below threshold (₹${totalAmount.toFixed(2)}). Carrying forward.`);
+      await session.abortTransaction();
+      return;
+    }
+
+    // 5. Calculate Stats
+    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const mbDays = totalMBHours / 24;
+    const averageStorageMB = mbDays / daysInMonth;
+
+    // 6. Create Bill
+    const [newBill] = await Billing.create([{
+      user: userId,
+      amount: Number(totalAmount.toFixed(2)),
+      period,
+      status: 'UNPAID',
+      plan: user.plan || "FREE",
+      storageUsed: user.usedStorage || 0,
+      mbDays: Number(mbDays.toFixed(4)),
+      averageStorageMB: Number(averageStorageMB.toFixed(4))
+    }], { session });
+
+    // 7. Update Usage Records
+    for (const record of usageRecords) {
+      const updateData = { lastBilledAt: now, billingId: newBill._id };
+      if (record.effectiveTo !== null) {
+        updateData.isBilled = true;
+      }
+      await StorageUsage.updateOne({ _id: record._id }, { $set: updateData }, { session });
+    }
+
+    // 8. CRITICAL: Clear the Dashboard Cache so "Current Bill" resets to 0 ✅
+    if (currentUsageDoc) {
+      await CurrentUsage.deleteOne({ _id: currentUsageDoc._id }).session(session);
+    }
+
+    await session.commitTransaction();
+    console.log(`✅ Bill generated for ${user.username}: ₹${totalAmount.toFixed(2)}`);
+
+  } catch (error) {
+    await session.abortTransaction();
+    console.error(`❌ Billing error for user ${user._id}:`, error.message);
+  } finally {
+    session.endSession();
+  }
+}

@@ -82,23 +82,22 @@ exports.createCheckoutSession = async (req, res) => {
     const { billId } = req.body;
     const bill = await Billing.findById(billId);
 
-    // 1. Ensure the bill exists and belongs to the user
     if (!bill || bill.user.toString() !== req.user._id.toString()) {
       return res.status(404).json({ error: "Bill not found" });
     }
 
-    // 2. APPLY MINIMUM FLOOR (₹45 is ~0.54 USD)
-    // This solves the "must convert to at least 50 cents" error
-    const minCharge = await getDynamicMinThreshold();
-    const finalAmount = Math.max(bill.amount, MIN_CHARGE_INR);
-
+    // ✅ CLEANUP: We don't need Math.max here anymore. 
+    // The background worker already filtered out bills below the threshold.
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       line_items: [{
         price_data: {
-          currency: 'inr', // Keep INR to avoid complex export reporting
-          product_data: { name: `VaultX Storage - ${bill.period}` },
-          unit_amount: Math.round(finalAmount * 100), // Convert to paise
+          currency: 'inr',
+          product_data: { 
+            name: `VaultX Storage - ${bill.period}`,
+            description: "Secure Cloud Storage Usage"
+          },
+          unit_amount: Math.round(bill.amount * 100), // Actual amount from DB in paise
         },
         quantity: 1,
       }],
@@ -149,15 +148,10 @@ exports.downloadInvoice = async (req, res) => {
       return res.status(404).json({ error: "Invoice not found" });
     }
 
-    const minCharge = await getDynamicMinThreshold();
-    const actualUsage = bill.amount;
-    const needsAdjustment = actualUsage < minCharge;
-    const adjustmentAmount = needsAdjustment ? (minCharge - actualUsage) : 0;
-    // 1. Data Safety Check: Ensure no values are undefined/null
+    // ✅ SIMPLIFIED: No need for minCharge or adjustment logic here.
+    // The bill object in the database is already the final, correct amount.
     const invoiceData = {
-      "images": {
-        "logo": "" // Use an empty string if no logo URL is available
-      },
+      "images": { "logo": "" },
       "sender": {
         "company": "VaultX Corp",
         "address": "Secure Cloud Lane",
@@ -170,7 +164,7 @@ exports.downloadInvoice = async (req, res) => {
         "address": bill.user.email || "",
         "zip": bill.period || "",
         "city": "User ID: " + bill.user._id.toString().slice(-6),
-        "country": "India" // easyinvoice often requires 'country' for both
+        "country": "India"
       },
       "information": {
         "number": bill._id.toString().slice(-8),
@@ -179,31 +173,23 @@ exports.downloadInvoice = async (req, res) => {
       },
       "products": [
         {
-          "quantity": Number((bill.mbHoursAccumulated || 0).toFixed(2)),
-          "description": `Encrypted Storage Usage (${bill.period})`,
-          "tax-rate": 0,
-          "price": Number(actualUsage.toFixed(2))
-        },
-        ...(needsAdjustment ? [{
           "quantity": 1,
-          "description": "Minimum Transaction Adjustment Fee",
+          "description": `VaultX Encrypted Storage Service - ${bill.period}`,
           "tax-rate": 0,
-          "price": Number(adjustmentAmount.toFixed(2))
-        }] : [])
+          "price": bill.amount 
+        }
       ],
-      "bottom-notice": needsAdjustment 
-        ? "A minimum transaction adjustment was applied to meet payment gateway requirements."
-        : "Standard usage billing applied.",
+      "bottom-notice": "Thank you for choosing VaultX. Your data security is our priority.",
       "settings": { "currency": "INR" }
     };
 
-    // 2. Create the invoice
     const result = await easyinvoice.createInvoice(invoiceData);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename=VaultX_Invoice_${bill.period}.pdf`);
     return res.send(Buffer.from(result.pdf, 'base64'));
 
   } catch (err) {
+    console.error("Invoice error:", err);
     res.status(500).json({ error: "Invoice generation failed" });
   }
 };

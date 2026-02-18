@@ -20,6 +20,13 @@ app.use(cors({
   credentials: true
 }));
 
+// Request logging
+app.use((req, res, next) => {
+  logger.info(`${req.method} ${req.path}`);
+  next();
+});
+
+
 app.post('/api/billing/webhook', 
   express.raw({ type: 'application/json' }), 
   billingController.handleStripeWebhook
@@ -27,11 +34,6 @@ app.post('/api/billing/webhook',
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Request logging
-app.use((req, res, next) => {
-  logger.info(`${req.method} ${req.path}`);
-  next();
-});
 
 console.log(" remove a tag and href from all Front-end and Footer");
 
