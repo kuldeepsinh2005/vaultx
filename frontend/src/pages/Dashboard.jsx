@@ -21,6 +21,7 @@ import { Card } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import Sidebar from "../components/layout/Sidebar";
 import Header from "../components/layout/Header";
+import { runCryptoWorker } from "../utils/workerHelper";
 
 const Dashboard = () => {
   const { api } = useAuth();
@@ -55,15 +56,21 @@ const Dashboard = () => {
 
       for (const file of fileList) {
         // 🚀 PHASE 1: ENCRYPTION
-        setProgress(0); // 0 acts as our "Encrypting" state
+        setProgress(0);
         setStatus({ type: "info", text: `Encrypting ${file.name} locally...` });
 
-        const aesKey = await generateAESKey();
-        const { encryptedBuffer, iv } = await encryptFile(file, aesKey);
-        const wrappedKey = await wrapAESKeyWithPublicKey(aesKey, publicKey);
+        // 🚀 PHASE 1: BACKGROUND ENCRYPTION (No UI Freeze!)
+        const { encryptedBuffer, exportedKey, iv } = await runCryptoWorker("ENCRYPT", { file });
+
+        // RSA is fast enough to keep on the main thread (it only encrypts 32 bytes)
+        // Convert the raw AES key to CryptoKey format just for wrapping, or adjust your wrap function
+        const importedAesKey = await crypto.subtle.importKey(
+          "raw", exportedKey, "AES-GCM", true, ["encrypt", "decrypt"]
+        );
+        const wrappedKey = await wrapAESKeyWithPublicKey(importedAesKey, publicKey);
+        
         const ivBase64 = base64UrlEncode(iv);
         const encryptedBlob = new Blob([new Uint8Array(encryptedBuffer)]);
-
         const formData = new FormData();
         formData.append("file", encryptedBlob, file.name);
         formData.append("wrappedKey", wrappedKey);

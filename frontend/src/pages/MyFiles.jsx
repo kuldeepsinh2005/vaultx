@@ -11,7 +11,7 @@ import {
   base64UrlToUint8Array,
   universalDecode
 } from "../utils/crypto";
-
+import { runCryptoWorker } from "../utils/workerHelper";
 import { 
   Loader2,
   Lock,
@@ -210,26 +210,29 @@ const MyFiles = () => {
         },
       });
 
+      // ... your existing network download code (api.get) ...
+      
       // ✅ Switch phase
       setDownloadPhase("Decrypting");
 
-      // 2️⃣ Unwrap AES key
+      // 1️⃣ Unwrap AES key (This returns a CryptoKey)
       const aesKey = await unwrapAESKeyWithPrivateKey(
         file.wrappedKey,
         privateKey
       );
 
-      // 3️⃣ Decode IV
-      const iv = universalDecode(file.iv);
+      // 2️⃣ Decode IV (and ensure a clean copy for the worker)
+      const originalIv = universalDecode(file.iv);
+      const cleanIv = new Uint8Array(originalIv);
 
-      // 4️⃣ Decrypt
-      const decryptedBuffer = await decryptFile(
-        res.data, 
-        aesKey,
-        iv
-      );
+      // 3️⃣ 🚀 BACKGROUND DECRYPTION (Pass the CryptoKey directly!)
+      const { decryptedBuffer } = await runCryptoWorker("DECRYPT", {
+        file: res.data,
+        keyData: aesKey, // <--- Just pass it directly!
+        iv: cleanIv
+      });
 
-      // 5️⃣ Create Download
+      // 4️⃣ Create Download
       const blob = new Blob([decryptedBuffer], { type: file.mimeType });
       const url = URL.createObjectURL(blob);
 
@@ -241,11 +244,13 @@ const MyFiles = () => {
       document.body.removeChild(a);
 
       URL.revokeObjectURL(url);
+      
     } catch (err) {
-       // ... existing error logic ...
+      // ✅ FIX: STOP SWALLOWING ERRORS! We need to see what is failing.
+      console.error("🚨 DOWNLOAD CRASHED:", err);
+      alert(`Download failed: ${err.message || err.name || "Unknown error (check console)"}`);
     } finally {
       setDecryptingId(null);
-      // ✅ Reset state
       setDownloadProgress(0);
       setDownloadPhase("");
     }
@@ -303,19 +308,32 @@ const MyFiles = () => {
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         try {
-          // ✅ Update Progress (e.g., "Fetching 2/10")
           setDownloadPhase(`Fetching ${i + 1}/${files.length}`);
           setDownloadProgress(Math.round((i / files.length) * 100));
 
           const res = await api.get(`/files/download/${file._id}`, { responseType: "blob" });
-          const aesKey = await unwrapAESKeyWithPrivateKey(file.wrappedKey, privateKey);
-          const iv = universalDecode(file.iv);
-          const decryptedBuffer = await decryptFile(res.data, aesKey, iv);
           
+          // 1️⃣ Unwrap AES key (Returns native CryptoKey)
+          const aesKey = await unwrapAESKeyWithPrivateKey(file.wrappedKey, privateKey);
+          
+          // 2️⃣ Decode IV and make a clean copy for the Web Worker
+          const originalIv = universalDecode(file.iv);
+          const cleanIv = new Uint8Array(originalIv);
+          
+          // 3️⃣ 🚀 BACKGROUND DECRYPTION
+          const { decryptedBuffer } = await runCryptoWorker("DECRYPT", {
+            file: res.data,
+            keyData: aesKey, 
+            iv: cleanIv
+          });
+          
+          // 4️⃣ Add to zip
           const cleanPath = file.zipPath.startsWith('/') ? file.zipPath.slice(1) : file.zipPath;
           zip.file(cleanPath, decryptedBuffer);
+
         } catch (fileErr) {
-          console.error(`Failed to decrypt ${file.originalName}:`, fileErr);
+          // ✅ FIX: DO NOT SWALLOW THIS ERROR!
+          console.error(`🚨 FAILED TO DECRYPT ${file.originalName}:`, fileErr);
         }
       }
 
