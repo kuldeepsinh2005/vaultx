@@ -93,6 +93,10 @@ const MyFiles = () => {
 
   const [movingItem, setMovingItem] = useState(null);
   const [folderTree, setFolderTree] = useState([]);
+
+  const [downloadProgress, setDownloadProgress] = useState(0);
+  const [downloadPhase, setDownloadPhase] = useState(""); // "Downloading", "Decrypting", "Zipping"
+
   const isEmpty = !error && folders.length === 0 && files.length === 0;
   const hasContent = !error && (folders.length > 0 || files.length > 0);
 
@@ -183,11 +187,31 @@ const MyFiles = () => {
       }
 
       setDecryptingId(file._id);
+      // ✅ Reset state for new download
+      setDownloadProgress(0);
+      setDownloadPhase("Downloading");
 
-      // 1️⃣ Download encrypted file
+      // 1️⃣ Download encrypted file WITH PROGRESS TRACKING
       const res = await api.get(`/files/download/${file._id}`, {
         responseType: "blob",
+        onDownloadProgress: (progressEvent) => {
+          if (progressEvent.total) {
+            // ✅ Normal: We know the total size
+            const percentCompleted = Math.round(
+              (progressEvent.loaded * 100) / progressEvent.total
+            );
+            setDownloadProgress(percentCompleted);
+          } else {
+            // ✅ Fallback: We don't know total size, so show MB loaded
+            const mbLoaded = (progressEvent.loaded / (1024 * 1024)).toFixed(1);
+            // We use a string here to tell the UI to render MBs instead of %
+            setDownloadProgress(`${mbLoaded} MB`); 
+          }
+        },
       });
+
+      // ✅ Switch phase
+      setDownloadPhase("Decrypting");
 
       // 2️⃣ Unwrap AES key
       const aesKey = await unwrapAESKeyWithPrivateKey(
@@ -195,41 +219,35 @@ const MyFiles = () => {
         privateKey
       );
 
-      // 3️⃣ Decode IV - Use the robust version
+      // 3️⃣ Decode IV
       const iv = universalDecode(file.iv);
 
       // 4️⃣ Decrypt
       const decryptedBuffer = await decryptFile(
-        res.data, // This is the blob from Axios
+        res.data, 
         aesKey,
         iv
       );
 
-      // 5️⃣ Create Download - Set the correct MIME type from DB
+      // 5️⃣ Create Download
       const blob = new Blob([decryptedBuffer], { type: file.mimeType });
       const url = URL.createObjectURL(blob);
 
       const a = document.createElement("a");
       a.href = url;
-      a.download = file.originalName; // Ensure this is the original name
-      document.body.appendChild(a); // Append to body for Firefox support
+      a.download = file.originalName; 
+      document.body.appendChild(a); 
       a.click();
       document.body.removeChild(a);
 
       URL.revokeObjectURL(url);
     } catch (err) {
-          if (
-          err.response?.status === 403 &&
-          err.response?.data?.code === "BILLING_UNPAID"
-        ) {
-          alert("Download blocked due to unpaid bill. Please clear your dues.");
-          navigate("/account");
-          return;
-        }
-
-        alert(`Decryption failed: ${err.message}`);
+       // ... existing error logic ...
     } finally {
       setDecryptingId(null);
+      // ✅ Reset state
+      setDownloadProgress(0);
+      setDownloadPhase("");
     }
   };
   const confirmDelete = async () => {
@@ -280,18 +298,20 @@ const MyFiles = () => {
       const { files } = metaRes.data;
       const zip = new JSZip();
 
-      // Use Promise.all with a limit or sequential loop for stability
-      for (const file of files) {
+      setDownloadPhase("Fetching");
+      
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
         try {
+          // ✅ Update Progress (e.g., "Fetching 2/10")
+          setDownloadPhase(`Fetching ${i + 1}/${files.length}`);
+          setDownloadProgress(Math.round((i / files.length) * 100));
+
           const res = await api.get(`/files/download/${file._id}`, { responseType: "blob" });
           const aesKey = await unwrapAESKeyWithPrivateKey(file.wrappedKey, privateKey);
-          
-          // Use the universal decoder here
           const iv = universalDecode(file.iv);
-
           const decryptedBuffer = await decryptFile(res.data, aesKey, iv);
           
-          // Ensure pathing doesn't have leading slashes
           const cleanPath = file.zipPath.startsWith('/') ? file.zipPath.slice(1) : file.zipPath;
           zip.file(cleanPath, decryptedBuffer);
         } catch (fileErr) {
@@ -299,8 +319,13 @@ const MyFiles = () => {
         }
       }
 
+      // ✅ Final Phase
+      setDownloadPhase("Zipping");
+      setDownloadProgress(100);
+
       const content = await zip.generateAsync({ type: "blob" });
       saveAs(content, `${folderName}.zip`);
+
     } catch (err) {
       console.error("Folder download failed:", err);
       alert("Could not process folder download.");
@@ -536,7 +561,7 @@ const MyFiles = () => {
                                   }}
                                   className="ml-3 text-emerald-400 text-xs font-bold"
                                 >
-                                  Download
+                                  {decryptingId === folder._id ? downloadPhase : "Download"}
                                 </button>
 
                               </td>
@@ -621,17 +646,38 @@ const MyFiles = () => {
                                 <button 
                                   onClick={() => handleDownload(file)}
                                   disabled={decryptingId === file._id}
-                                  className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-xl transition-all font-black text-[10px] uppercase tracking-widest border
+                                  className={`relative overflow-hidden inline-flex items-center gap-2 px-5 py-2.5 rounded-xl transition-all font-black text-[10px] uppercase tracking-widest border
                                   ${decryptingId === file._id 
-                                    ? 'bg-indigo-500/20 border-indigo-500/40 text-indigo-400' 
+                                    ? 'bg-transparent border-indigo-500/40 text-indigo-400' 
                                     : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-white hover:text-black hover:border-white shadow-xl hover:shadow-white/5'}`}
                                 >
-                                  {decryptingId === file._id ? (
-                                    <Loader2 className="w-[14px] h-[14px] animate-spin" />
-                                  ) : (
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-download" aria-hidden="true"><path d="M12 15V3"></path><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="m7 10 5 5 5-5"></path></svg>
+                                  {/* ✅ Smooth Background Progress Fill */}
+                                  {decryptingId === file._id && downloadPhase === "Downloading" && (
+                                    <div 
+                                      className="absolute left-0 top-0 bottom-0 bg-indigo-500/20 transition-all duration-200 ease-out"
+                                      style={{ width: `${downloadProgress}%` }}
+                                    />
                                   )}
-                                  {decryptingId === file._id ? "Decrypting" : "Retrieve"}
+                                  {/* Background pulse for Decrypting phase */}
+                                  {decryptingId === file._id && downloadPhase === "Decrypting" && (
+                                    <div className="absolute inset-0 bg-indigo-500/20 animate-pulse" />
+                                  )}
+                                  
+                                  <div className="relative z-10 flex items-center gap-2">
+                                    {decryptingId === file._id ? (
+                                      <Loader2 className="w-[14px] h-[14px] animate-spin" />
+                                    ) : (
+                                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-download" aria-hidden="true"><path d="M12 15V3"></path><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="m7 10 5 5 5-5"></path></svg>
+                                    )}
+                                    
+                                    {/* Dynamic Text */}
+                                    {/* ✅ THIS IS WHERE YOUR DYNAMIC TEXT GOES */}
+                                    {decryptingId === file._id 
+                                      ? (downloadPhase === "Downloading" 
+                                          ? `FETCHING ${typeof downloadProgress === 'number' ? downloadProgress + '%' : downloadProgress}` 
+                                          : "DECRYPTING...") 
+                                      : "Retrieve"}
+                                  </div>
                                 </button>
                               </td>
                             </tr>

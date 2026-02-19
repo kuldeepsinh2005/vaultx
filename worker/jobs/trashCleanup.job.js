@@ -8,8 +8,7 @@ const { getStorageProvider } = require("../storage");
 const User = require("../models/User.model");
 const StorageUsage = require("../models/StorageUsage.model");
 
-
-const TRASH_TTL_MS  = 10 * 1000;
+const TRASH_TTL_MS  = 10 * 1000; // 10 seconds for testing (Change to 30 days in prod)
 const BATCH_SIZE = 10;
 
 cron.schedule("*/1 * * * *", async () => {
@@ -20,10 +19,9 @@ cron.schedule("*/1 * * * *", async () => {
 
   try {
     console.log("🧹 Trash cleanup started");
-    const threshold = new Date(Date.now() - TRASH_TTL_MS );
+    const threshold = new Date(Date.now() - TRASH_TTL_MS);
     const storage = getStorageProvider();
-    console.log("🧪 Storage provider in worker:", storage.constructor.name);
-
+    
     /* 1. PROCESS EXPIRED FILES */
     const expiredFiles = await File.find({
       isDeleted: true,
@@ -32,13 +30,19 @@ cron.schedule("*/1 * * * *", async () => {
     .sort({ deletedAt: 1 })
     .limit(BATCH_SIZE);
 
-
-   for (const file of expiredFiles) {
+    for (const file of expiredFiles) {
       try {
         console.log(`Deleting file from storage: ${file.storagePath}`);
 
-        // 1️⃣ Delete from storage (source of truth)
-        await storage.delete(file.storagePath);
+        // 1️⃣ Delete from storage WITH ROBUST ERROR HANDLING
+        try {
+          await storage.delete(file.storagePath);
+        } catch (storageErr) {
+          if (storageErr.code !== "ENOENT" && storageErr.code !== "NoSuchKey" && storageErr.name !== "NotFound") {
+            throw storageErr; // Real error, abort DB cleanup for this specific file
+          }
+          console.warn(`[Worker] File ${file._id} already missing from storage. Proceeding with DB cleanup.`);
+        }
 
         // 2️⃣ Stop billing
         await StorageUsage.findOneAndUpdate(
@@ -46,22 +50,23 @@ cron.schedule("*/1 * * * *", async () => {
           { effectiveTo: new Date() }
         );
 
-        // 3️⃣ Free quota
-        await User.findByIdAndUpdate(file.owner, {
+        // 3️⃣ Free quota safely (Anti-Negative Storage Protection)
+        const updatedUser = await User.findByIdAndUpdate(file.owner, {
           $inc: { usedStorage: -file.size },
-        });
+        }, { new: true });
+
+        if (updatedUser && updatedUser.usedStorage < 0) {
+          await User.findByIdAndUpdate(file.owner, { usedStorage: 0 });
+        }
 
         // 4️⃣ Delete DB record
         await File.deleteOne({ _id: file._id });
 
       } catch (err) {
-        if (err.code !== "ENOENT") {
-          console.error(`Storage delete failed for ${file._id}:`, err.message);
-        }
-        // ❌ DO NOT stop billing or free quota if storage delete failed
+        console.error(`[Worker] Cleanup failed for file ${file._id}:`, err.message);
+        // ❌ Loop continues to next file even if this one fails
       }
     }
-
 
     /* 2. PROCESS EXPIRED FOLDERS */
     const expiredFolders = await Folder.find({
@@ -91,26 +96,35 @@ async function deleteFolderForever(folderId, ownerId) {
 
   for (const file of files) {
     try {
-      await storage.delete(file.storagePath);
+      // 1. Storage Delete
+      try {
+        await storage.delete(file.storagePath);
+      } catch (storageErr) {
+        if (storageErr.code !== "ENOENT" && storageErr.code !== "NoSuchKey" && storageErr.name !== "NotFound") {
+          throw storageErr;
+        }
+      }
 
-      // Stop billing
+      // 2. Stop billing
       await StorageUsage.findOneAndUpdate(
         { file: file._id, effectiveTo: null },
         { effectiveTo: new Date() }
       );
 
-      // Free quota
-      await User.findByIdAndUpdate(file.owner, {
+      // 3. Free quota safely
+      const updatedUser = await User.findByIdAndUpdate(ownerId, {
         $inc: { usedStorage: -file.size },
-      });
+      }, { new: true });
 
-      // Delete DB record
+      if (updatedUser && updatedUser.usedStorage < 0) {
+        await User.findByIdAndUpdate(ownerId, { usedStorage: 0 });
+      }
+
+      // 4. Delete DB record
       await File.deleteOne({ _id: file._id });
 
     } catch (err) {
-      if (err.code !== "ENOENT") {
-        console.error(`Storage delete failed for ${file._id}:`, err.message);
-      }
+      console.error(`[Worker] Failed to process file ${file._id} in folder deletion:`, err.message);
     }
   }
 

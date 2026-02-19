@@ -137,7 +137,7 @@ exports.downloadFile = async (req, res) => {
       `attachment; filename="${file.originalName}.enc"`
     );
     res.setHeader("Content-Type", "application/octet-stream");
-
+    res.setHeader('Content-Length', file.size);
     stream.pipe(res);
 
   } catch (err) {

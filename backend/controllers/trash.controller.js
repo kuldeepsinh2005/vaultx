@@ -97,6 +97,8 @@ exports.restoreFolder = async (req, res) => {
   res.json({ success: true });
 };
 
+// ... keep your existing getTrash, restoreFile, and restoreFolder functions ...
+
 exports.permanentDeleteFile = async (req, res) => {
   const file = await File.findOne({
     _id: req.params.id,
@@ -111,8 +113,17 @@ exports.permanentDeleteFile = async (req, res) => {
   const storage = getStorageProvider();
 
   try {
-    // 1️⃣ Delete from storage (source of truth)
-    await storage.delete(file.storagePath);
+    // 1️⃣ Delete from storage WITH ROBUST ERROR HANDLING
+    try {
+      await storage.delete(file.storagePath);
+    } catch (storageErr) {
+      // Handle both Local (ENOENT) and S3 (NoSuchKey/NotFound) missing file errors
+      if (storageErr.code !== "ENOENT" && storageErr.code !== "NoSuchKey" && storageErr.name !== "NotFound") {
+        console.error(`[Storage] Hard fail deleting ${file.storagePath}:`, storageErr.message);
+        return res.status(500).json({ error: "Storage provider failed to delete the file." });
+      }
+      console.warn(`[Storage] File already missing from S3/Local. Proceeding with DB cleanup.`);
+    }
 
     // 2️⃣ Stop billing
     await StorageUsage.findOneAndUpdate(
@@ -120,10 +131,15 @@ exports.permanentDeleteFile = async (req, res) => {
       { effectiveTo: new Date() }
     );
 
-    // 3️⃣ Free quota
-    await User.findByIdAndUpdate(file.owner, {
+    // 3️⃣ Free quota safely (Anti-Negative Storage Protection)
+    const updatedUser = await User.findByIdAndUpdate(file.owner, {
       $inc: { usedStorage: -file.size },
-    });
+    }, { new: true });
+
+    // Fallback: If out-of-sync DB causes negative storage, reset it to 0
+    if (updatedUser && updatedUser.usedStorage < 0) {
+      await User.findByIdAndUpdate(file.owner, { usedStorage: 0 });
+    }
 
     // 4️⃣ Delete DB record
     await File.deleteOne({ _id: file._id });
@@ -131,9 +147,7 @@ exports.permanentDeleteFile = async (req, res) => {
     res.json({ success: true });
 
   } catch (err) {
-    if (err.code !== "ENOENT") {
-      console.error("Storage delete failed:", err.message);
-    }
+    console.error("Permanent delete failed:", err);
     return res.status(500).json({ error: "Permanent delete failed" });
   }
 };
@@ -151,7 +165,13 @@ const permanentDeleteFolderRecursive = async (folderId, userId) => {
   for (const file of files) {
     try {
       // 1️⃣ Delete from storage
-      await storage.delete(file.storagePath);
+      try {
+        await storage.delete(file.storagePath);
+      } catch (storageErr) {
+        if (storageErr.code !== "ENOENT" && storageErr.code !== "NoSuchKey" && storageErr.name !== "NotFound") {
+          throw storageErr; // Real error, abort this specific file
+        }
+      }
 
       // 2️⃣ Stop billing
       await StorageUsage.findOneAndUpdate(
@@ -159,21 +179,25 @@ const permanentDeleteFolderRecursive = async (folderId, userId) => {
         { effectiveTo: new Date() }
       );
 
-      // 3️⃣ Free quota
-      await User.findByIdAndUpdate(file.owner, {
+      // 3️⃣ Free quota safely
+      const updatedUser = await User.findByIdAndUpdate(userId, {
         $inc: { usedStorage: -file.size },
-      });
+      }, { new: true });
+
+      if (updatedUser && updatedUser.usedStorage < 0) {
+        await User.findByIdAndUpdate(userId, { usedStorage: 0 });
+      }
 
       // 4️⃣ Delete DB record
       await File.deleteOne({ _id: file._id });
 
     } catch (err) {
-      if (err.code !== "ENOENT") {
-        console.error("Storage delete failed:", err.message);
-      }
+      // Log the error but continue the loop so one bad file doesn't block the folder deletion
+      console.error(`Failed to process file ${file._id} during folder deletion:`, err.message);
     }
   }
 
+  // Recurse children
   const children = await Folder.find({
     parent: folderId,
     owner: userId,
@@ -184,6 +208,7 @@ const permanentDeleteFolderRecursive = async (folderId, userId) => {
     await permanentDeleteFolderRecursive(child._id, userId);
   }
 
+  // Delete folder metadata
   await Folder.deleteOne({
     _id: folderId,
     owner: userId,
@@ -196,7 +221,7 @@ exports.permanentDeleteFolder = async (req, res) => {
     await permanentDeleteFolderRecursive(req.params.id, req.user._id);
     res.json({ success: true });
   } catch (err) {
-    console.error(err);
+    console.error("Folder permanent delete error:", err);
     res.status(500).json({ error: "Permanent folder delete failed" });
   }
 };

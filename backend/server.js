@@ -17,7 +17,8 @@ const server = http.createServer(app);
 app.use(cookieParser());
 app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:8686',
-  credentials: true
+  credentials: true,
+  exposedHeaders: ['Content-Length', 'Content-Disposition']
 }));
 
 // Request logging

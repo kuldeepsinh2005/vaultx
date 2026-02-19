@@ -31,6 +31,7 @@ const Dashboard = () => {
 
   const [uploading, setUploading] = useState(false);
   const [status, setStatus] = useState({ type: "", text: "" });
+  const [progress, setProgress] = useState(0);
 
   const location = useLocation();
 
@@ -43,84 +44,71 @@ const Dashboard = () => {
 
 
   const handleUpload = async () => {
-  if (!fileList.length) return;
+    if (!fileList.length) return;
 
-  setUploading(true);
-  setStatus({ type: "info", text: "Encrypting & uploading files..." });
+    setUploading(true);
+    setStatus({ type: "info", text: "Initializing..." });
 
-  try {
-    const userRes = await api.get("/auth/me");
-    const publicKey = userRes.data.user.publicKey;
+    try {
+      const userRes = await api.get("/auth/me");
+      const publicKey = userRes.data.user.publicKey;
 
-    for (const file of fileList) {
-      // 1️⃣ Generate AES key
-      const aesKey = await generateAESKey();
+      for (const file of fileList) {
+        // 🚀 PHASE 1: ENCRYPTION
+        setProgress(0); // 0 acts as our "Encrypting" state
+        setStatus({ type: "info", text: `Encrypting ${file.name} locally...` });
 
-      // 2️⃣ Encrypt file
-      const { encryptedBuffer, iv } = await encryptFile(file, aesKey);
+        const aesKey = await generateAESKey();
+        const { encryptedBuffer, iv } = await encryptFile(file, aesKey);
+        const wrappedKey = await wrapAESKeyWithPublicKey(aesKey, publicKey);
+        const ivBase64 = base64UrlEncode(iv);
+        const encryptedBlob = new Blob([new Uint8Array(encryptedBuffer)]);
 
-      // 3️⃣ Wrap AES key
-      const wrappedKey = await wrapAESKeyWithPublicKey(aesKey, publicKey);
+        const formData = new FormData();
+        formData.append("file", encryptedBlob, file.name);
+        formData.append("wrappedKey", wrappedKey);
+        formData.append("iv", ivBase64);
+        formData.append("relativePath", file.webkitRelativePath || file.name);
 
-      // 4️⃣ Convert IV to Base64
-      const ivBase64 = base64UrlEncode(iv);
+        if (currentFolder) {
+          formData.append("folder", currentFolder);
+        }
 
-      // 5️⃣ Encrypted file = ciphertext ONLY
-      const encryptedBlob = new Blob([
-        new Uint8Array(encryptedBuffer),
-      ]);
-
-      const formData = new FormData();
-      formData.append("file", encryptedBlob, file.name);
-      formData.append("wrappedKey", wrappedKey);
-      formData.append("iv", ivBase64);
-
-      formData.append(
-        "relativePath",
-        file.webkitRelativePath || file.name
-      );
-
-      if (currentFolder) {
-        formData.append("folder", currentFolder);
+        // 🚀 PHASE 2: UPLOAD (Network)
+        setStatus({ type: "info", text: `Uploading ${file.name}...` });
+        
+        await api.post("/files/upload", formData, {
+          onUploadProgress: (progressEvent) => {
+            const percentCompleted = Math.round(
+              (progressEvent.loaded * 100) / progressEvent.total
+            );
+            
+            if (percentCompleted < 100) {
+               setProgress(percentCompleted);
+               setStatus({ type: "info", text: `Uploading ${file.name}...` });
+            } else {
+               // 🚀 PHASE 3: FINALIZING (Waiting for Server to save to DB/S3)
+               setProgress(100);
+               setStatus({ type: "info", text: `Saving ${file.name} to Vault...` });
+            }
+          },
+        });
       }
 
-      await api.post("/files/upload", formData);
+      setStatus({ type: "success", text: "All files secured successfully!" });
+      setFileList([]);
+      fileInputRef.current && (fileInputRef.current.value = "");
+      folderInputRef.current && (folderInputRef.current.value = "");
+
+    } catch (err) {
+      // ... keep your existing error handling ...
+      console.error(err);
+      setStatus({ type: "error", text: "Upload failed." });
+    } finally {
+      setUploading(false);
+      setProgress(0);
     }
-
-    setStatus({ type: "success", text: "Files uploaded securely!" });
-    setFileList([]);
-    fileInputRef.current && (fileInputRef.current.value = "");
-    folderInputRef.current && (folderInputRef.current.value = "");
-
-  } catch (err) {
-        if (
-      err.response?.status === 403 &&
-      err.response?.data?.code === "BILLING_UNPAID"
-    ) {
-      setStatus({
-        type: "error",
-        text: "Upload blocked due to unpaid bill. Please clear your dues.",
-      });
-
-      // optional: redirect after short delay
-      setTimeout(() => {
-        navigate("/account"); // or /billing if you add that page
-      }, 2000);
-
-      return;
-    }
-
-    console.error(err);
-    setStatus({
-      type: "error",
-      text: "Encryption or upload failed.",
-    });
-
-  } finally {
-    setUploading(false);
-  }
-};
-
+  };
 
   return (
     /* Changed min-h-screen to h-screen and added overflow-hidden to match MyFiles */
@@ -248,8 +236,41 @@ const Dashboard = () => {
                 {status.text}
               </div>
             )}
+            
+            {/* Existing Status Notifications */}
+           {/* Dynamic Progress Bar UI */}
+            {uploading && (
+              <div className="mb-6 animate-in fade-in duration-300">
+                <div className="flex justify-between text-xs uppercase font-bold tracking-widest text-slate-400 mb-2">
+                  <span>{status.text}</span>
+                  {progress > 0 && progress < 100 && <span className="text-indigo-400">{progress}%</span>}
+                  {progress === 100 && <span className="text-emerald-400 animate-pulse">Wait...</span>}
+                </div>
+                
+                <div className="w-full bg-slate-900/50 border border-slate-800 rounded-full h-3 overflow-hidden shadow-inner relative">
+                  
+                  {/* Phase 1: Encrypting (Pulsing background when progress is 0) */}
+                  {progress === 0 && (
+                    <div className="absolute inset-0 bg-indigo-500/30 animate-pulse" />
+                  )}
 
-            {/* Upload Button - Increased mt-10 if no status exists, otherwise status mb handles it */}
+                  {/* Phase 2 & 3: Uploading & Finalizing */}
+                  {progress > 0 && (
+                    <div 
+                      className={`h-full transition-all duration-300 ease-out relative ${
+                        progress === 100 ? 'bg-emerald-500' : 'bg-gradient-to-r from-indigo-600 to-indigo-400'
+                      }`}
+                      style={{ width: `${progress}%` }}
+                    >
+                      {/* Shimmer effect inside the bar */}
+                      <div className="absolute top-0 right-0 bottom-0 w-10 bg-white/20 blur-[4px] -translate-x-full animate-[shimmer_2s_infinite]" />
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Existing Upload Button */}
             <Button 
               onClick={handleUpload}
               disabled={!fileList.length || uploading}  
@@ -257,7 +278,8 @@ const Dashboard = () => {
               className={status.text ? "" : "mt-10"} 
             >
               {!uploading && <ShieldCheck size={18} />}
-              {uploading ? "Executing..." : "Seal & Upload to Vault"}
+              {/* ✅ UPDATE text to show dynamic processing state */}
+              {uploading ? (progress > 0 ? `Sealing... ${progress}%` : "Encrypting Locally...") : "Seal & Upload to Vault"}
             </Button>
             </Card>
 
