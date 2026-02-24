@@ -105,13 +105,36 @@ async function processUserBilling(user) {
       averageStorageMB: Number(averageStorageMB.toFixed(4))
     }], { session });
 
-    // 7. Update Usage Records
+    // 7. Update Active Records & Delete Closed Records
+    const activeRecordIds = [];
+    const deletedRecordIds = [];
+
+    // Separate the records into our two arrays
     for (const record of usageRecords) {
-      const updateData = { lastBilledAt: now, billingId: newBill._id };
       if (record.effectiveTo !== null) {
-        updateData.isBilled = true;
+        // The file was deleted this month, queue for database removal
+        deletedRecordIds.push(record._id);
+      } else {
+        // The file is still in the vault, queue for next month
+        activeRecordIds.push(record._id);
       }
-      await StorageUsage.updateOne({ _id: record._id }, { $set: updateData }, { session });
+    }
+
+    // A) Update the files that are still active
+    if (activeRecordIds.length > 0) {
+      await StorageUsage.updateMany(
+        { _id: { $in: activeRecordIds } },
+        { $set: { lastBilledAt: now, billingId: newBill._id } },
+        { session }
+      );
+    }
+
+    // B) 🗑️ DELETE the records for files that no longer exist!
+    if (deletedRecordIds.length > 0) {
+      await StorageUsage.deleteMany(
+        { _id: { $in: deletedRecordIds } },
+        { session }
+      );
     }
 
     // 8. CRITICAL: Clear the Dashboard Cache so "Current Bill" resets to 0 ✅

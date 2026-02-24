@@ -35,10 +35,15 @@ export const AuthProvider = ({ children }) => {
         const originalRequest = error.config;
 
         // If 401 and we haven't retried yet
+        // If 401 and we haven't retried yet
         if (error.response?.status === 401 && !originalRequest._retry) {
-          // IMPORTANT: Do NOT check originalRequest.url for the login/refresh routes
-          // to prevent infinite loops if the refresh route itself returns 401.
-          if (originalRequest.url.includes('/auth/refresh') || originalRequest.url.includes('/auth/login')) {
+          
+          // ✅ FIX: Added /auth/logout to the Guard Clause!
+          if (
+            originalRequest.url.includes('/auth/refresh') || 
+            originalRequest.url.includes('/auth/login') ||
+            originalRequest.url.includes('/auth/logout') 
+          ) {
              return Promise.reject(error);
           }
 
@@ -46,22 +51,32 @@ export const AuthProvider = ({ children }) => {
 
           try {
             // Attempt to refresh the token
-            const res = await api.post("/auth/refresh"); // Ensure this matches your backend route
+            const res = await api.post("/auth/refresh"); 
             
             if (res.data?.user) {
               setUser(res.data.user);
               setIsAuthenticated(true);
             }
             
-            // Retry the original failed request (like the file download)
+            // Retry the original failed request
             return api(originalRequest); 
           } catch (err) {
-            // If refresh fails (e.g., refresh token expired), clean up and logout
-            await logout(); 
+            // 🚨 If refresh fails, clear the state
+            setUser(null);
+            setIsAuthenticated(false);
+            
+            // ✅ THE FIX: Only force a redirect if they aren't already on the auth pages!
+            // This stops the infinite hard-reload loop on mount.
+            if (
+              window.location.pathname !== "/login" && 
+              window.location.pathname !== "/register"
+            ) {
+              window.location.href = "/login"; 
+            }
+            
             return Promise.reject(err);
           }
         }
-
         return Promise.reject(error);
       }
     );

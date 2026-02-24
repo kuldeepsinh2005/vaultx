@@ -1,3 +1,4 @@
+// backend/models/CurrentUsage.model.js
 const mongoose = require("mongoose");
 
 const CurrentUsageSchema = new mongoose.Schema(

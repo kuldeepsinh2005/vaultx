@@ -11,7 +11,10 @@ const StorageUsage = require("../models/StorageUsage.model");
 const TRASH_TTL_MS  = 10 * 1000; // 10 seconds for testing (Change to 30 days in prod)
 const BATCH_SIZE = 10;
 
-cron.schedule("*/1 * * * *", async () => {
+// cron.schedule("*/1 * * * *", async () => {
+  // ✅ Run every 10 seconds during testing!
+cron.schedule("*/10 * * * * *", async () => { 
+  // ... rest of your worker code ...
   if (mongoose.connection.readyState !== 1) {
     console.log("⏳ Mongo not ready, skipping cleanup");
     return;
@@ -84,65 +87,82 @@ cron.schedule("*/1 * * * *", async () => {
   }
 });
 
+// ✅ NEW: The Enterprise Bulk Processing Engine for Background Workers
 async function deleteFolderForever(folderId, ownerId) {
   const storage = getStorageProvider();
 
-  // 1️⃣ Delete files in this folder
-  const files = await File.find({
-    folder: folderId,
+  // 🚀 PHASE 1: FLATTEN THE FOLDER TREE
+  const folderIdsToDelete = [folderId];
+  let queue = [folderId];
+
+  while (queue.length > 0) {
+    const children = await Folder.find({ 
+      parent: { $in: queue }, 
+      owner: ownerId, 
+      isDeleted: true 
+    }, '_id').lean();
+    
+    const childIds = children.map(c => c._id);
+    if (childIds.length > 0) {
+      folderIdsToDelete.push(...childIds);
+    }
+    queue = childIds;
+  }
+
+  // Find ALL files inside ALL of these folders
+  const filesToDelete = await File.find({
+    folder: { $in: folderIdsToDelete },
     owner: ownerId,
     isDeleted: true,
-  });
+  }).lean();
 
-  for (const file of files) {
-    try {
-      // 1. Storage Delete
+  let totalBytesFreed = 0;
+  const successfulFileIds = [];
+
+  // 🚀 PHASE 2: BATCH S3 DELETIONS (Fast & Safe)
+  const S3_BATCH_SIZE = 10; 
+  for (let i = 0; i < filesToDelete.length; i += S3_BATCH_SIZE) {
+    const batch = filesToDelete.slice(i, i + S3_BATCH_SIZE);
+    
+    const batchPromises = batch.map(async (file) => {
       try {
         await storage.delete(file.storagePath);
+        totalBytesFreed += file.size;
+        successfulFileIds.push(file._id);
       } catch (storageErr) {
         if (storageErr.code !== "ENOENT" && storageErr.code !== "NoSuchKey" && storageErr.name !== "NotFound") {
-          throw storageErr;
+          console.error(`[Worker Storage] Hard fail deleting ${file.storagePath}:`, storageErr.message);
+        } else {
+          totalBytesFreed += file.size;
+          successfulFileIds.push(file._id);
         }
       }
+    });
 
-      // 2. Stop billing
-      await StorageUsage.findOneAndUpdate(
-        { file: file._id, effectiveTo: null },
-        { effectiveTo: new Date() }
-      );
+    await Promise.all(batchPromises); 
+  }
 
-      // 3. Free quota safely
-      const updatedUser = await User.findByIdAndUpdate(ownerId, {
-        $inc: { usedStorage: -file.size },
-      }, { new: true });
+  // 🚀 PHASE 3: MONGODB BULK OPERATIONS
+  if (successfulFileIds.length > 0) {
+    // 1. Stop billing
+    await StorageUsage.updateMany(
+      { file: { $in: successfulFileIds }, effectiveTo: null },
+      { effectiveTo: new Date() }
+    );
 
-      if (updatedUser && updatedUser.usedStorage < 0) {
-        await User.findByIdAndUpdate(ownerId, { usedStorage: 0 });
-      }
+    // 2. Free quota safely
+    const updatedUser = await User.findByIdAndUpdate(ownerId, {
+      $inc: { usedStorage: -totalBytesFreed }
+    }, { new: true });
 
-      // 4. Delete DB record
-      await File.deleteOne({ _id: file._id });
-
-    } catch (err) {
-      console.error(`[Worker] Failed to process file ${file._id} in folder deletion:`, err.message);
+    if (updatedUser && updatedUser.usedStorage < 0) {
+      await User.findByIdAndUpdate(ownerId, { usedStorage: 0 });
     }
+
+    // 3. Delete DB records
+    await File.deleteMany({ _id: { $in: successfulFileIds } });
   }
 
-  // 2️⃣ Recurse into deleted subfolders
-  const children = await Folder.find({
-    parent: folderId,
-    owner: ownerId,
-    isDeleted: true,
-  });
-
-  for (const child of children) {
-    await deleteFolderForever(child._id, ownerId);
-  }
-
-  // 3️⃣ Delete folder metadata
-  await Folder.deleteOne({
-    _id: folderId,
-    owner: ownerId,
-    isDeleted: true,
-  });
+  // 4. Delete folder records
+  await Folder.deleteMany({ _id: { $in: folderIdsToDelete } });
 }

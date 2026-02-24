@@ -153,72 +153,92 @@ exports.permanentDeleteFile = async (req, res) => {
 };
 
 
-const permanentDeleteFolderRecursive = async (folderId, userId) => {
+// ✅ NEW: The Enterprise Bulk Processing Engine
+const permanentDeleteFolderFlattened = async (folderId, userId) => {
   const storage = getStorageProvider();
 
-  const files = await File.find({
-    folder: folderId,
+  // 🚀 PHASE 1: FLATTEN THE FOLDER TREE
+  // Find all nested folder IDs in a few quick loops instead of deep recursion
+  const folderIdsToDelete = [folderId];
+  let queue = [folderId];
+
+  while (queue.length > 0) {
+    const children = await Folder.find({ 
+      parent: { $in: queue }, 
+      owner: userId, 
+      isDeleted: true 
+    }, '_id').lean();
+    
+    const childIds = children.map(c => c._id);
+    if (childIds.length > 0) {
+      folderIdsToDelete.push(...childIds);
+    }
+    queue = childIds;
+  }
+
+  // Find ALL files inside ALL of these folders in one single query
+  const filesToDelete = await File.find({
+    folder: { $in: folderIdsToDelete },
     owner: userId,
     isDeleted: true,
-  });
+  }).lean();
 
-  for (const file of files) {
-    try {
-      // 1️⃣ Delete from storage
+  let totalBytesFreed = 0;
+  const successfulFileIds = [];
+
+  // 🚀 PHASE 2: BATCH S3 DELETIONS (Fast, but safe for the network)
+  const BATCH_SIZE = 10; 
+  for (let i = 0; i < filesToDelete.length; i += BATCH_SIZE) {
+    const batch = filesToDelete.slice(i, i + BATCH_SIZE);
+    
+    const batchPromises = batch.map(async (file) => {
       try {
         await storage.delete(file.storagePath);
+        totalBytesFreed += file.size;
+        successfulFileIds.push(file._id);
       } catch (storageErr) {
         if (storageErr.code !== "ENOENT" && storageErr.code !== "NoSuchKey" && storageErr.name !== "NotFound") {
-          throw storageErr; // Real error, abort this specific file
+          console.error(`[Storage] Hard fail deleting ${file.storagePath}:`, storageErr.message);
+        } else {
+          // Already missing from S3, safe to clean up DB
+          totalBytesFreed += file.size;
+          successfulFileIds.push(file._id);
         }
       }
+    });
 
-      // 2️⃣ Stop billing
-      await StorageUsage.findOneAndUpdate(
-        { file: file._id, effectiveTo: null },
-        { effectiveTo: new Date() }
-      );
+    await Promise.all(batchPromises); // Wait for the batch of 10 to finish before starting the next
+  }
 
-      // 3️⃣ Free quota safely
-      const updatedUser = await User.findByIdAndUpdate(userId, {
-        $inc: { usedStorage: -file.size },
-      }, { new: true });
+  // 🚀 PHASE 3: MONGODB BULK OPERATIONS (No database hammering!)
+  if (successfulFileIds.length > 0) {
+    // 1. Stop billing for all deleted files simultaneously
+    await StorageUsage.updateMany(
+      { file: { $in: successfulFileIds }, effectiveTo: null },
+      { effectiveTo: new Date() }
+    );
 
-      if (updatedUser && updatedUser.usedStorage < 0) {
-        await User.findByIdAndUpdate(userId, { usedStorage: 0 });
-      }
+    // 2. Free up the user's storage quota in ONE atomic math calculation
+    const updatedUser = await User.findByIdAndUpdate(userId, {
+      $inc: { usedStorage: -totalBytesFreed }
+    }, { new: true });
 
-      // 4️⃣ Delete DB record
-      await File.deleteOne({ _id: file._id });
-
-    } catch (err) {
-      // Log the error but continue the loop so one bad file doesn't block the folder deletion
-      console.error(`Failed to process file ${file._id} during folder deletion:`, err.message);
+    // Safety fallback
+    if (updatedUser && updatedUser.usedStorage < 0) {
+      await User.findByIdAndUpdate(userId, { usedStorage: 0 });
     }
+
+    // 3. Delete all file records simultaneously
+    await File.deleteMany({ _id: { $in: successfulFileIds } });
   }
 
-  // Recurse children
-  const children = await Folder.find({
-    parent: folderId,
-    owner: userId,
-    isDeleted: true,
-  });
-
-  for (const child of children) {
-    await permanentDeleteFolderRecursive(child._id, userId);
-  }
-
-  // Delete folder metadata
-  await Folder.deleteOne({
-    _id: folderId,
-    owner: userId,
-    isDeleted: true,
-  });
+  // 4. Delete all folder records simultaneously
+  await Folder.deleteMany({ _id: { $in: folderIdsToDelete } });
 };
-
 exports.permanentDeleteFolder = async (req, res) => {
   try {
-    await permanentDeleteFolderRecursive(req.params.id, req.user._id);
+    // ✅ Call the new bulk engine
+    await permanentDeleteFolderFlattened(req.params.id, req.user._id);
     res.json({ success: true });
   } catch (err) {
     console.error("Folder permanent delete error:", err);
