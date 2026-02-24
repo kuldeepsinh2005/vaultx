@@ -112,23 +112,26 @@ export async function wrapAESKeyWithPublicKey(aesKey, publicKeyBase64) {
 }
 
 // Decrypt (unwrap) AES key using RSA private key
-export async function unwrapAESKeyWithPrivateKey(wrappedKeyBase64, privateKey) {
-  const wrappedKey = universalDecode(wrappedKeyBase64); // Fixed
+export const unwrapAESKeyWithPrivateKey = async (wrappedKey, privateKey) => {
+  const wrappedKeyBuffer = universalDecode(wrappedKey); 
 
-  const rawAES = await crypto.subtle.decrypt(
+  // 1. Manually decrypt the AES key bytes using standard RSA decryption
+  // (This avoids the strict 'unwrapKey' usage requirement)
+  const rawAesBytes = await crypto.subtle.decrypt(
     { name: "RSA-OAEP" },
     privateKey,
-    wrappedKey
+    wrappedKeyBuffer
   );
 
-  return crypto.subtle.importKey(
+  // 2. Import the raw bytes back into an AES-GCM CryptoKey
+  return await crypto.subtle.importKey(
     "raw",
-    rawAES,
-    { name: "AES-GCM" },
-    false,
-    ["decrypt"]
+    rawAesBytes,
+    "AES-GCM",
+    true, // ✅ TRUE: This allows exportKey() to send it to the Web Worker!
+    ["encrypt", "decrypt"] 
   );
-}
+};
 
 export function universalDecode(b64) {
   if (!b64) return new Uint8Array();

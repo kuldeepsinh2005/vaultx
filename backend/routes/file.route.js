@@ -8,7 +8,13 @@ const {
   getMyFiles,
   downloadFile,
   moveFile,
-  deleteFile
+  deleteFile,
+  getPresignedDownloadUrl,
+  getUploadTicket,
+  finalizeUpload,
+  initiateMultipart,
+  completeMultipart,
+  abortMultipart
 } = require("../controllers/file.controller");
 const { enforceBillingClear } = require("../middleware/billing.middleware");
 
@@ -28,6 +34,14 @@ router.get("/my", verifyJWT, getMyFiles);
 
 router.get("/download/:id", verifyJWT, enforceBillingClear,downloadFile);
 router.patch("/:id/move", verifyJWT, moveFile);
-router.patch("/:id/delete", verifyJWT, deleteFile);
+router.patch("/:id/delete", verifyJWT, deleteFile); 
+router.get("/presigned-download/:id", verifyJWT, getPresignedDownloadUrl);
+router.post("/upload-ticket", verifyJWT, getUploadTicket);
+router.post("/finalize", verifyJWT, finalizeUpload);
+// Add these to your routes
+router.post("/multipart/initiate", verifyJWT, initiateMultipart);
+router.post("/multipart/complete", verifyJWT, completeMultipart);
+router.post("/multipart/abort", verifyJWT, abortMultipart);
+
 
 module.exports = router;

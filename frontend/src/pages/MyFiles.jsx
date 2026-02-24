@@ -24,7 +24,7 @@ import {
 import Sidebar from "../components/layout/Sidebar";
 import Header from "../components/layout/Header";
 import { ChevronRight, ChevronDown } from "lucide-react";
-
+import axios from "axios";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
 
@@ -187,53 +187,55 @@ const MyFiles = () => {
       }
 
       setDecryptingId(file._id);
-      // ✅ Reset state for new download
       setDownloadProgress(0);
       setDownloadPhase("Downloading");
 
-      // 1️⃣ Download encrypted file WITH PROGRESS TRACKING
-      const res = await api.get(`/files/download/${file._id}`, {
+      // 1️⃣ Get the Pre-signed Ticket from your backend
+      const ticketRes = await api.get(`/files/presigned-download/${file._id}`);
+      const directS3Url = ticketRes.data.url;
+
+      // 2️⃣ Download DIRECTLY from AWS S3 (Using standard axios, not your custom api)
+      const res = await axios.get(directS3Url, {
         responseType: "blob",
         onDownloadProgress: (progressEvent) => {
           if (progressEvent.total) {
-            // ✅ Normal: We know the total size
-            const percentCompleted = Math.round(
-              (progressEvent.loaded * 100) / progressEvent.total
-            );
+            const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
             setDownloadProgress(percentCompleted);
           } else {
-            // ✅ Fallback: We don't know total size, so show MB loaded
             const mbLoaded = (progressEvent.loaded / (1024 * 1024)).toFixed(1);
-            // We use a string here to tell the UI to render MBs instead of %
-            setDownloadProgress(`${mbLoaded} MB`); 
+            setDownloadProgress(`${mbLoaded} MB`);
           }
         },
       });
 
-      // ... your existing network download code (api.get) ...
+      // 3️⃣ Switch phase & Decrypt
+      // ... after downloading from AWS S3 ...
       
-      // ✅ Switch phase
       setDownloadPhase("Decrypting");
 
-      // 1️⃣ Unwrap AES key (This returns a CryptoKey)
+      // 1️⃣ Unwrap AES key (It is now extractable!)
       const aesKey = await unwrapAESKeyWithPrivateKey(
         file.wrappedKey,
         privateKey
       );
 
-      // 2️⃣ Decode IV (and ensure a clean copy for the worker)
+      // 2️⃣ Export it to a Raw ArrayBuffer (100% safe to send to workers)
+      const rawAesKey = await crypto.subtle.exportKey("raw", aesKey);
+
+      // 3️⃣ Decode IV
       const originalIv = universalDecode(file.iv);
       const cleanIv = new Uint8Array(originalIv);
 
-      // 3️⃣ 🚀 BACKGROUND DECRYPTION (Pass the CryptoKey directly!)
+      // 4️⃣ 🚀 BACKGROUND DECRYPTION
       const { decryptedBuffer } = await runCryptoWorker("DECRYPT", {
         file: res.data,
-        keyData: aesKey, // <--- Just pass it directly!
+        keyData: rawAesKey, // Passing the raw ArrayBuffer safely!
         iv: cleanIv
       });
 
-      // 4️⃣ Create Download
+      // 5️⃣ Create Download
       const blob = new Blob([decryptedBuffer], { type: file.mimeType });
+      // ... existing URL creation and download logic ...
       const url = URL.createObjectURL(blob);
 
       const a = document.createElement("a");
@@ -305,37 +307,52 @@ const MyFiles = () => {
 
       setDownloadPhase("Fetching");
       
+      // ... previous zip initialization code ...
+
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         try {
+          // Update UI Progress
           setDownloadPhase(`Fetching ${i + 1}/${files.length}`);
           setDownloadProgress(Math.round((i / files.length) * 100));
 
-          const res = await api.get(`/files/download/${file._id}`, { responseType: "blob" });
+          // 1️⃣ Get the Pre-signed Ticket from your backend
+          const ticketRes = await api.get(`/files/presigned-download/${file._id}`);
+          const directS3Url = ticketRes.data.url;
+
+          // 2️⃣ Download DIRECTLY from AWS S3 (Using standard axios!)
+          const res = await axios.get(directS3Url, { 
+            responseType: "blob" 
+          });
           
-          // 1️⃣ Unwrap AES key (Returns native CryptoKey)
+          // 3️⃣ Unwrap AES key
           const aesKey = await unwrapAESKeyWithPrivateKey(file.wrappedKey, privateKey);
           
-          // 2️⃣ Decode IV and make a clean copy for the Web Worker
+          // 4️⃣ Export to Raw ArrayBuffer (100% safe to send to Web Worker)
+          const rawAesKey = await crypto.subtle.exportKey("raw", aesKey);
+          
+          // 5️⃣ Decode IV and force a clean memory copy
           const originalIv = universalDecode(file.iv);
           const cleanIv = new Uint8Array(originalIv);
           
-          // 3️⃣ 🚀 BACKGROUND DECRYPTION
+          // 6️⃣ 🚀 BACKGROUND DECRYPTION
           const { decryptedBuffer } = await runCryptoWorker("DECRYPT", {
             file: res.data,
-            keyData: aesKey, 
+            keyData: rawAesKey, 
             iv: cleanIv
           });
           
-          // 4️⃣ Add to zip
+          // 7️⃣ Add the decrypted bytes to the zip file
           const cleanPath = file.zipPath.startsWith('/') ? file.zipPath.slice(1) : file.zipPath;
           zip.file(cleanPath, decryptedBuffer);
 
         } catch (fileErr) {
-          // ✅ FIX: DO NOT SWALLOW THIS ERROR!
-          console.error(`🚨 FAILED TO DECRYPT ${file.originalName}:`, fileErr);
+          // Keep this console error so if one file fails, it doesn't silently break the whole zip!
+          console.error(`🚨 FAILED TO PROCESS ${file.originalName}:`, fileErr);
         }
       }
+
+      // ... existing zip.generateAsync() and download logic continues ...
 
       // ✅ Final Phase
       setDownloadPhase("Zipping");

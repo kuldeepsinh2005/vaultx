@@ -33,17 +33,23 @@ self.onmessage = async (e) => {
     } 
     
    else if (action === "DECRYPT") {
-      // ✅ FIX: keyData is already a native CryptoKey! No importKey needed.
-      const aesKey = keyData; 
+      // 1. Rebuild the CryptoKey from the raw ArrayBuffer we sent
+      const aesKey = await crypto.subtle.importKey(
+        "raw",
+        keyData,
+        "AES-GCM",
+        true,
+        ["decrypt"]
+      );
 
-      // Decrypt the file buffer
+      // 2. Decrypt the file buffer
       const decryptedBuffer = await crypto.subtle.decrypt(
         { name: "AES-GCM", iv: iv },
         aesKey,
         fileData
       );
 
-      // Send back using Zero-Copy Transfer
+      // 3. Send back using Zero-Copy Transfer
       self.postMessage(
         { success: true, decryptedBuffer },
         [decryptedBuffer]

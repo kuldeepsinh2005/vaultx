@@ -4,7 +4,7 @@ import { generateAESKey, encryptFile, wrapAESKeyWithPublicKey,base64UrlEncode } 
 import { useState } from "react";
 import { Link,useLocation   } from "react-router-dom";
 import { useRef } from "react";
-
+import axios from "axios";
 // Icons
 import { 
   CloudUpload, 
@@ -44,79 +44,154 @@ const Dashboard = () => {
 
 
 
-  const handleUpload = async () => {
+ const handleUpload = async () => {
     if (!fileList.length) return;
 
     setUploading(true);
     setStatus({ type: "info", text: "Initializing..." });
 
+    // AWS Multipart Setup
+    const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks
+    const MAX_CONCURRENT_UPLOADS = 4; // Upload 4 chunks simultaneously
+
     try {
+      // Fetch user's public key for wrapping the AES key
       const userRes = await api.get("/auth/me");
       const publicKey = userRes.data.user.publicKey;
 
       for (const file of fileList) {
-        // 🚀 PHASE 1: ENCRYPTION
-        setProgress(0);
-        setStatus({ type: "info", text: `Encrypting ${file.name} locally...` });
+        // Variables scoped outside so the catch block can access them for rollback
+        let currentUploadId = null;
+        let currentStoragePath = null;
 
-        // 🚀 PHASE 1: BACKGROUND ENCRYPTION (No UI Freeze!)
-        const { encryptedBuffer, exportedKey, iv } = await runCryptoWorker("ENCRYPT", { file });
+        try {
+          setProgress(0);
+          setStatus({ type: "info", text: `Encrypting ${file.name} locally (this may take a minute)...` });
 
-        // RSA is fast enough to keep on the main thread (it only encrypts 32 bytes)
-        // Convert the raw AES key to CryptoKey format just for wrapping, or adjust your wrap function
-        const importedAesKey = await crypto.subtle.importKey(
-          "raw", exportedKey, "AES-GCM", true, ["encrypt", "decrypt"]
-        );
-        const wrappedKey = await wrapAESKeyWithPublicKey(importedAesKey, publicKey);
-        
-        const ivBase64 = base64UrlEncode(iv);
-        const encryptedBlob = new Blob([new Uint8Array(encryptedBuffer)]);
-        const formData = new FormData();
-        formData.append("file", encryptedBlob, file.name);
-        formData.append("wrappedKey", wrappedKey);
-        formData.append("iv", ivBase64);
-        formData.append("relativePath", file.webkitRelativePath || file.name);
+          // 🚀 PHASE 1: BACKGROUND ENCRYPTION
+          const { encryptedBuffer, exportedKey, iv } = await runCryptoWorker("ENCRYPT", { file });
 
-        if (currentFolder) {
-          formData.append("folder", currentFolder);
-        }
+          const importedAesKey = await crypto.subtle.importKey("raw", exportedKey, "AES-GCM", true, ["encrypt", "decrypt"]);
+          const wrappedKey = await wrapAESKeyWithPublicKey(importedAesKey, publicKey);
+          const ivBase64 = base64UrlEncode(iv);
+          
+          const encryptedBlob = new Blob([new Uint8Array(encryptedBuffer)], { type: "application/octet-stream" });
+          const partsCount = Math.ceil(encryptedBlob.size / CHUNK_SIZE);
 
-        // 🚀 PHASE 2: UPLOAD (Network)
-        setStatus({ type: "info", text: `Uploading ${file.name}...` });
-        
-        await api.post("/files/upload", formData, {
-          onUploadProgress: (progressEvent) => {
-            const percentCompleted = Math.round(
-              (progressEvent.loaded * 100) / progressEvent.total
-            );
-            
-            if (percentCompleted < 100) {
-               setProgress(percentCompleted);
-               setStatus({ type: "info", text: `Uploading ${file.name}...` });
-            } else {
-               // 🚀 PHASE 3: FINALIZING (Waiting for Server to save to DB/S3)
-               setProgress(100);
-               setStatus({ type: "info", text: `Saving ${file.name} to Vault...` });
+          // 🚀 PHASE 2: INITIATE MULTIPART UPLOAD
+          setStatus({ type: "info", text: `Connecting to secure vault...` });
+          const initRes = await api.post("/files/multipart/initiate", {
+            fileSize: encryptedBlob.size,
+            partsCount
+          });
+          
+          currentUploadId = initRes.data.uploadId;
+          currentStoragePath = initRes.data.storagePath;
+          const { urls } = initRes.data;
+
+          // 🚀 PHASE 3: PARALLEL CHUNK UPLOAD (Sliding Window - No Rigid Batches!)
+          setStatus({ type: "info", text: `Uploading ${file.name}...` });
+          const uploadedParts = [];
+          const chunkProgress = {}; 
+          let lastUiUpdate = 0;
+
+          const activeUploads = new Set(); // Tracks ongoing uploads
+
+          for (const part of urls) {
+            const start = (part.partNumber - 1) * CHUNK_SIZE;
+            const end = Math.min(start + CHUNK_SIZE, encryptedBlob.size);
+            const chunk = encryptedBlob.slice(start, end);
+
+            // Create the upload promise
+            const uploadPromise = axios.put(part.url, chunk, {
+              headers: { "Content-Type": "application/octet-stream" },
+              onUploadProgress: (progressEvent) => {
+                chunkProgress[part.partNumber] = progressEvent.loaded;
+                
+                const now = Date.now();
+                // Update UI smoothly without freezing React
+                if (now - lastUiUpdate > 150 || progressEvent.loaded === progressEvent.total) {
+                  const currentTotal = Object.values(chunkProgress).reduce((sum, val) => sum + val, 0);
+                  setProgress(Math.round((currentTotal / encryptedBlob.size) * 100));
+                  lastUiUpdate = now;
+                }
+              }
+            }).then((res) => {
+              // When finished, save the ETag and remove from active queue
+              uploadedParts.push({ PartNumber: part.partNumber, ETag: res.headers.etag });
+              activeUploads.delete(uploadPromise);
+            });
+
+            activeUploads.add(uploadPromise);
+
+            // ✅ SLIDING WINDOW: If we hit 4 connections, wait for just ONE to finish before starting the next
+            if (activeUploads.size >= MAX_CONCURRENT_UPLOADS) {
+              await Promise.race(activeUploads);
             }
-          },
-        });
+          }
+
+          // Wait for the final few chunks to finish
+          await Promise.all(activeUploads);
+
+          // 🚀 PHASE 4: STITCH FILE & FINALIZE MONGODB
+          setStatus({ type: "info", text: `Finalizing ${file.name}...` });
+          setProgress(100);
+          
+          uploadedParts.sort((a, b) => a.PartNumber - b.PartNumber);
+
+          await api.post("/files/multipart/complete", {
+            uploadId: currentUploadId,
+            storagePath: currentStoragePath,
+            parts: uploadedParts,
+            originalName: file.name,
+            wrappedKey: wrappedKey,
+            iv: ivBase64,
+            size: encryptedBlob.size,
+            mimeType: file.type || "application/octet-stream",
+            folderId: currentFolder || null,
+            relativePath: file.webkitRelativePath || file.name 
+          });
+
+        } catch (fileErr) {
+          console.error(`🚨 Upload crashed for ${file.name}:`, fileErr);
+          
+          // 🚨 STATE CONSISTENCY: Abort and clean up AWS S3
+          if (currentUploadId && currentStoragePath) {
+            await api.post("/files/multipart/abort", {
+              uploadId: currentUploadId,
+              storagePath: currentStoragePath
+            }).catch(e => console.error("Failed to abort S3 upload:", e));
+          }
+          
+          setStatus({ type: "error", text: `Failed to upload ${file.name}` });
+          await new Promise(resolve => setTimeout(resolve, 2000)); 
+        }
       }
 
+      // Cleanup and success state
       setStatus({ type: "success", text: "All files secured successfully!" });
       setFileList([]);
-      fileInputRef.current && (fileInputRef.current.value = "");
-      folderInputRef.current && (folderInputRef.current.value = "");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      if (folderInputRef.current) folderInputRef.current.value = "";
+
+      // ✅ FIX: Reload the page to show the new files instead of crashing on fetchFiles
+      setTimeout(() => {
+        window.location.reload();
+      }, 1500);
 
     } catch (err) {
-      // ... keep your existing error handling ...
-      console.error(err);
-      setStatus({ type: "error", text: "Upload failed." });
+      console.error("🚨 Upload crashed:", err);
+      setStatus({ 
+        type: "error", 
+        text: err.response?.data?.error || "Upload failed. Check console for details." 
+      });
     } finally {
       setUploading(false);
       setProgress(0);
     }
   };
 
+  
   return (
     /* Changed min-h-screen to h-screen and added overflow-hidden to match MyFiles */
     <div className="flex h-screen bg-[#020617] text-slate-200 overflow-hidden">
