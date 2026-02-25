@@ -595,3 +595,63 @@ exports.getSharedFolderContentsRecursive = async (req, res) => {
     res.status(500).json({ error: "Failed to fetch folder contents for download" });
   }
 };
+
+exports.getFolderContentsRecursive = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const rootFolderId = req.params.folderId; // <--- Match the route!
+
+    const allFiles = [];
+    const allFolders = []; // ✅ Track folders too
+
+    const collect = async (folderId) => {
+      // 1. Collect files in this folder
+      const files = await File.find({ folder: folderId, owner: userId, isDeleted: false });
+      files.forEach(f => {
+        allFiles.push({
+          _id: f._id,
+          originalName: f.originalName,
+          wrappedKey: f.wrappedKey, // Needed for re-wrapping
+          mimeType: f.mimeType
+        });
+      });
+
+      // 2. Collect subfolders
+      const subfolders = await Folder.find({ parent: folderId, owner: userId, isDeleted: false });
+      
+      for (const sub of subfolders) {
+        // ✅ Add the subfolder itself to our list
+        allFolders.push({
+          _id: sub._id,
+          name: sub.name,
+          parent: sub.parent
+        });
+        
+        // Recurse
+        await collect(sub._id);
+      }
+    };
+
+    const rootFolder = await Folder.findOne({ _id: rootFolderId, owner: userId });
+    if (!rootFolder) return res.status(404).json({ error: "Folder not found" });
+
+    // ✅ Add the root folder itself so it gets shared too
+    allFolders.push({
+      _id: rootFolder._id,
+      name: rootFolder.name,
+      parent: rootFolder.parent
+    });
+
+    await collect(rootFolderId); // Start recursion
+
+    res.json({ 
+      success: true, 
+      files: allFiles, 
+      folders: allFolders, // ✅ Return both arrays
+      rootFolderId: rootFolder._id
+    });
+  } catch (err) {
+    console.error("Recursive fetch error:", err);
+    res.status(500).json({ error: "Failed to fetch recursive contents" });
+  }
+};

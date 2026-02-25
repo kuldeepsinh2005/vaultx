@@ -318,23 +318,27 @@ exports.getFolderCount = async (req, res) => {
 
 
 // backend/controllers/folder.controller.js
+
 exports.getFolderContentsRecursive = async (req, res) => {
   try {
     const userId = req.user._id;
     const rootFolderId = req.params.id;
 
     const allFiles = [];
-    const allFolders = []; // ✅ Track folders too
+    const allFolders = [];
 
-    const collect = async (folderId) => {
+    // ✅ BROUGHT BACK pathPrefix FOR ZIPPING
+    const collect = async (folderId, pathPrefix = "") => {
       // 1. Collect files in this folder
       const files = await File.find({ folder: folderId, owner: userId, isDeleted: false });
       files.forEach(f => {
         allFiles.push({
           _id: f._id,
           originalName: f.originalName,
-          wrappedKey: f.wrappedKey, // Needed for re-wrapping
-          mimeType: f.mimeType
+          wrappedKey: f.wrappedKey, 
+          mimeType: f.mimeType,
+          iv: f.iv, // ✅ BROUGHT BACK: Needed for decryption!
+          zipPath: pathPrefix + f.originalName // ✅ BROUGHT BACK: Needed for folder structure!
         });
       });
 
@@ -342,34 +346,32 @@ exports.getFolderContentsRecursive = async (req, res) => {
       const subfolders = await Folder.find({ parent: folderId, owner: userId, isDeleted: false });
       
       for (const sub of subfolders) {
-        // ✅ Add the subfolder itself to our list
         allFolders.push({
           _id: sub._id,
           name: sub.name,
           parent: sub.parent
         });
         
-        // Recurse
-        await collect(sub._id);
+        // ✅ BROUGHT BACK: Recurse with the updated path
+        await collect(sub._id, pathPrefix + sub.name + "/");
       }
     };
 
     const rootFolder = await Folder.findOne({ _id: rootFolderId, owner: userId });
     if (!rootFolder) return res.status(404).json({ error: "Folder not found" });
 
-    // ✅ Add the root folder itself so it gets shared too
     allFolders.push({
       _id: rootFolder._id,
       name: rootFolder.name,
       parent: rootFolder.parent
     });
 
-    await collect(rootFolderId); // Start recursion
+    await collect(rootFolderId, ""); // Start recursion with empty root path
 
     res.json({ 
       success: true, 
       files: allFiles, 
-      folders: allFolders, // ✅ Return both arrays
+      folders: allFolders, 
       rootFolderId: rootFolder._id
     });
   } catch (err) {

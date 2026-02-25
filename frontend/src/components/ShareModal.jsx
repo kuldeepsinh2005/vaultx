@@ -39,9 +39,9 @@ const handleShare = async (e) => {
         // === FOLDER SHARING ===
         setProgress("Fetching structure...");
         
-        // A. Get files AND folders
-        const contentsRes = await api.get(`/folders/${item._id}/all-contents`);
-        const { files, folders } = contentsRes.data; // ✅ Get folders too
+        // A. Get files AND folders (✅ NEW DEDICATED SHARE ROUTE)
+        const contentsRes = await api.get(`/shares/folder/${item._id}/recursive-contents`);
+        const { files, folders } = contentsRes.data;
 
         const filePayload = [];
         const folderPayload = folders.map(f => f._id); // ✅ Extract Folder IDs
