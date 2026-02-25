@@ -9,6 +9,11 @@ import Header from "../components/layout/Header";
 import { 
   Download, FileText, Folder, Loader2, ArrowLeft, Filter, FolderOpen, Lock
 } from "lucide-react";
+import axios from "axios";
+import JSZip from "jszip";
+import { saveAs } from "file-saver";
+import { unwrapAESKeyWithPrivateKey, universalDecode } from "../utils/crypto";
+import { runCryptoWorker } from "../utils/workerHelper";
 
 export default function SharedWithMe() {
   const { api } = useAuth();
@@ -27,6 +32,10 @@ export default function SharedWithMe() {
   // Filter State
   const [senders, setSenders] = useState([]); 
   const [selectedSender, setSelectedSender] = useState(""); 
+
+  const [decryptingFolderId, setDecryptingFolderId] = useState(null);
+  const [downloadPhase, setDownloadPhase] = useState(""); 
+  const [downloadProgress, setDownloadProgress] = useState(0);
 
   // 1. Fetch Data (Root or Folder Contents)
   useEffect(() => {
@@ -73,12 +82,7 @@ export default function SharedWithMe() {
     setSelectedSender(""); // Clear filter when diving in
   };
 
-  const handleBack = () => {
-    const newStack = [...folderStack];
-    newStack.pop();
-    setFolderStack(newStack);
-    setCurrentFolder(newStack.length > 0 ? newStack[newStack.length - 1] : null);
-  };
+
 
   const handleDownload = async (record) => {
     if (!privateKey) { navigate("/unlock"); return; }
@@ -103,6 +107,81 @@ export default function SharedWithMe() {
       setDownloadingId(null);
     }
   };
+
+  const handleFolderDownload = async (folderRecord) => {
+    try {
+      if (!privateKey) { navigate("/unlock"); return; }
+
+      const folderId = folderRecord.folder._id;
+      const ownerId = folderRecord.owner._id;
+      
+      setDecryptingFolderId(folderId);
+      setDownloadPhase("Fetching List");
+
+      // 1. Get all unlocked files and their zip paths
+      const metaRes = await api.get(`/shares/folder/${folderId}/all-contents?ownerId=${ownerId}`);
+      const { files, folderName } = metaRes.data;
+
+      if (!files || files.length === 0) {
+        alert("There are no unlocked files in this folder to download.");
+        setDecryptingFolderId(null);
+        return;
+      }
+
+      const zip = new JSZip();
+
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        try {
+          setDownloadPhase(`Fetching ${i + 1}/${files.length}`);
+          setDownloadProgress(Math.round((i / files.length) * 100));
+
+          // 1️⃣ Get Pre-signed Ticket from SHARED route
+          const ticketRes = await api.get(`/shares/presigned-download/${file._id}`);
+          const directS3Url = ticketRes.data.url;
+
+          // 2️⃣ Download from S3
+          const res = await axios.get(directS3Url, { responseType: "blob" });
+          
+          // 3️⃣ Unwrap AES key specific to this user
+          const aesKey = await unwrapAESKeyWithPrivateKey(file.wrappedKey, privateKey);
+          const rawAesKey = await crypto.subtle.exportKey("raw", aesKey);
+          
+          // 4️⃣ Decode IV
+          const cleanIv = new Uint8Array(universalDecode(file.iv));
+          
+          // 5️⃣ DECRYPT in Worker
+          const { decryptedBuffer } = await runCryptoWorker("DECRYPT", {
+            file: res.data,
+            keyData: rawAesKey, 
+            iv: cleanIv
+          });
+          
+          // 6️⃣ Add to ZIP
+          const cleanPath = file.zipPath.startsWith('/') ? file.zipPath.slice(1) : file.zipPath;
+          zip.file(cleanPath, decryptedBuffer);
+
+        } catch (fileErr) {
+          console.error(`FAILED TO PROCESS ${file.originalName}:`, fileErr);
+        }
+      }
+
+      setDownloadPhase("Zipping");
+      setDownloadProgress(100);
+
+      const content = await zip.generateAsync({ type: "blob" });
+      saveAs(content, `${folderName}.zip`);
+
+    } catch (err) {
+      console.error("Folder download failed:", err);
+      alert("Could not process folder download.");
+    } finally {
+      setDecryptingFolderId(null);
+      setDownloadPhase("");
+      setDownloadProgress(0);
+    }
+  };
+
 
   return (
     <div className="flex h-screen bg-[#020617] text-slate-200 overflow-hidden">
@@ -197,22 +276,52 @@ export default function SharedWithMe() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               
               {/* RENDER FOLDERS */}
+              {/* RENDER FOLDERS */}
               {items.folders.map(record => (
                 <div 
                   key={record._id} 
                   onClick={() => handleFolderClick(record)}
-                  className="bg-slate-900/40 backdrop-blur-sm p-5 rounded-2xl border border-slate-800/50 hover:border-indigo-500/30 hover:bg-slate-800/60 transition-all cursor-pointer group flex items-center gap-4"
+                  className="bg-slate-900/40 backdrop-blur-sm p-5 rounded-2xl border border-slate-800/50 hover:border-indigo-500/30 hover:bg-slate-800/60 transition-all cursor-pointer group flex items-center justify-between"
                 >
-                  <div className="w-12 h-12 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-400 group-hover:scale-110 transition-transform">
-                    <Folder size={24} />
+                  <div className="flex items-center gap-4 flex-1 min-w-0">
+                    <div className="w-12 h-12 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-400 group-hover:scale-110 transition-transform">
+                      <Folder size={24} />
+                    </div>
+                    <div className="flex-1 min-w-0 pr-2">
+                      <h3 className="font-bold text-slate-200 truncate">{record.folder.name}</h3>
+                      <p className="text-xs text-slate-500 truncate">Owned by {record.owner.username}</p>
+                    </div>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-bold text-slate-200 truncate">{record.folder.name}</h3>
-                    <p className="text-xs text-slate-500 truncate">Owned by {record.owner.username}</p>
-                  </div>
+                  
+                  {/* ✅ THE FOLDER DOWNLOAD BUTTON */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation(); // Prevent folder navigation
+                      handleFolderDownload(record);
+                    }}
+                    disabled={decryptingFolderId === record.folder._id}
+                    className="p-2.5 bg-slate-800 text-slate-300 hover:bg-emerald-600 hover:text-white rounded-xl transition-all shadow-md disabled:opacity-50 flex-shrink-0 relative overflow-hidden"
+                    title="Download Folder as Zip"
+                  >
+                    {/* Background Progress Fill */}
+                    {decryptingFolderId === record.folder._id && (
+                      <div 
+                        className="absolute left-0 top-0 bottom-0 bg-emerald-500/20 transition-all duration-200 ease-out"
+                        style={{ width: `${downloadProgress}%` }}
+                      />
+                    )}
+
+                    <div className="relative z-10 flex items-center gap-2">
+                      {decryptingFolderId === record.folder._id ? (
+                        <><Loader2 size={18} className="animate-spin" /> <span className="text-[10px] font-bold uppercase tracking-widest hidden sm:inline">{downloadPhase}</span></>
+                      ) : (
+                        <Download size={18} />
+                      )}
+                    </div>
+                  </button>
                 </div>
               ))}
-
+              
               {/* RENDER FILES */}
               {items.files.map(record => (
                 <div key={record.file._id} className="bg-slate-900/40 backdrop-blur-sm p-5 rounded-2xl border border-slate-800/50 hover:border-indigo-500/30 transition-all group flex flex-col">

@@ -11,7 +11,8 @@ const {
   getSharedFolderContents,
   getAccessList,
   revokeAccess,
-  getPendingSync
+  getPendingSync,
+  getSharedFolderContentsRecursive
 } = require('../controllers/share.controller');
 
 // All share routes require authentication
@@ -34,5 +35,7 @@ router.get('/access-list', getAccessList);
 router.post('/revoke', revokeAccess);
 
 router.get('/item/:itemId/pending-sync', asyncHandler(getPendingSync));
+
+router.get('/folder/:folderId/all-contents', asyncHandler(getSharedFolderContentsRecursive));
 
 module.exports = router;

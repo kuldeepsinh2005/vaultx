@@ -497,3 +497,101 @@ exports.getPendingSync = async (req, res) => {
     res.status(500).json({ error: "Failed to fetch sync data" });
   }
 };
+
+// 9. Get recursive contents of a shared folder for Zipping
+exports.getSharedFolderContentsRecursive = async (req, res) => {
+  try {
+    const { folderId } = req.params;
+    const { ownerId } = req.query;
+    const userId = req.user._id;
+
+    if (!ownerId) {
+      return res.status(400).json({ error: "Missing ownerId parameter" });
+    }
+
+    // 1. Verify user has some level of access to this folder tree (security check)
+    let hasAccess = false;
+    const directShare = await SharedFolder.findOne({ folder: folderId, sharedWith: userId });
+    if (directShare) hasAccess = true;
+
+    if (!hasAccess) {
+      let current = await Folder.findById(folderId);
+      while (current && current.parent) {
+         const parentShare = await SharedFolder.findOne({ folder: current.parent, sharedWith: userId });
+         if (parentShare) {
+            hasAccess = true;
+            break;
+         }
+         current = await Folder.findById(current.parent);
+      }
+    }
+
+    if (!hasAccess) {
+      return res.status(403).json({ error: "Access denied to this folder." });
+    }
+
+    const rootFolder = await Folder.findById(folderId).lean();
+
+    // 2. BFS to get all subfolders AND build their relative paths for the Zip file
+    const allFolderIds = [folderId];
+    let queue = [folderId];
+    
+    // Track paths. e.g., folderPaths["abc123id"] = "Subfolder/DeepFolder/"
+    const folderPaths = { [folderId.toString()]: "" }; 
+
+    while (queue.length > 0) {
+      const currentId = queue.shift();
+      const children = await Folder.find({ parent: currentId, owner: ownerId, isDeleted: false }).lean();
+      
+      for (const child of children) {
+        const childIdStr = child._id.toString();
+        allFolderIds.push(child._id);
+        queue.push(child._id);
+        // Build path by appending this folder's name to its parent's path
+        folderPaths[childIdStr] = folderPaths[currentId.toString()] + child.name + "/";
+      }
+    }
+
+    // 3. Fetch all files in this entire tree
+    const files = await File.find({ 
+      folder: { $in: allFolderIds }, 
+      owner: ownerId, 
+      isDeleted: false 
+    }).lean();
+
+    // 4. Find which of these files the user ACTUALLY has keys for
+    const sharedFiles = await SharedFile.find({ 
+      sharedWith: userId, 
+      file: { $in: files.map(f => f._id) } 
+    }).lean();
+
+    const shareMap = {};
+    sharedFiles.forEach(s => shareMap[s.file.toString()] = s.wrappedKey);
+
+    // 5. Construct the final downloadable list
+    const downloadableFiles = [];
+    for (const file of files) {
+       const wrappedKey = shareMap[file._id.toString()];
+       if (wrappedKey) { // ONLY include files they have the key for
+          downloadableFiles.push({
+             _id: file._id,
+             originalName: file.originalName,
+             mimeType: file.mimeType,
+             iv: file.iv,
+             wrappedKey: wrappedKey,
+             zipPath: folderPaths[file.folder.toString()] + file.originalName
+          });
+       }
+    }
+
+    res.json({ 
+      success: true, 
+      files: downloadableFiles, 
+      folderName: rootFolder.name 
+    });
+
+  } catch (err) {
+    console.error("Shared recursive fetch error:", err);
+    res.status(500).json({ error: "Failed to fetch folder contents for download" });
+  }
+};
