@@ -323,30 +323,57 @@ exports.getFolderContentsRecursive = async (req, res) => {
     const userId = req.user._id;
     const rootFolderId = req.params.id;
 
-    // Helper to recursively find all files
     const allFiles = [];
-    const collect = async (folderId, pathPrefix = "") => {
-      // Get files in current level
+    const allFolders = []; // ✅ Track folders too
+
+    const collect = async (folderId) => {
+      // 1. Collect files in this folder
       const files = await File.find({ folder: folderId, owner: userId, isDeleted: false });
       files.forEach(f => {
         allFiles.push({
-          ...f.toObject(),
-          zipPath: pathPrefix + f.originalName
+          _id: f._id,
+          originalName: f.originalName,
+          wrappedKey: f.wrappedKey, // Needed for re-wrapping
+          mimeType: f.mimeType
         });
       });
 
-      // Get subfolders
+      // 2. Collect subfolders
       const subfolders = await Folder.find({ parent: folderId, owner: userId, isDeleted: false });
+      
       for (const sub of subfolders) {
-        await collect(sub._id, pathPrefix + sub.name + "/");
+        // ✅ Add the subfolder itself to our list
+        allFolders.push({
+          _id: sub._id,
+          name: sub.name,
+          parent: sub.parent
+        });
+        
+        // Recurse
+        await collect(sub._id);
       }
     };
 
-    const rootFolder = await Folder.findById(rootFolderId);
-    await collect(rootFolderId, ""); // Start recursion
+    const rootFolder = await Folder.findOne({ _id: rootFolderId, owner: userId });
+    if (!rootFolder) return res.status(404).json({ error: "Folder not found" });
 
-    res.json({ success: true, files: allFiles, folderName: rootFolder.name });
+    // ✅ Add the root folder itself so it gets shared too
+    allFolders.push({
+      _id: rootFolder._id,
+      name: rootFolder.name,
+      parent: rootFolder.parent
+    });
+
+    await collect(rootFolderId); // Start recursion
+
+    res.json({ 
+      success: true, 
+      files: allFiles, 
+      folders: allFolders, // ✅ Return both arrays
+      rootFolderId: rootFolder._id
+    });
   } catch (err) {
+    console.error("Recursive fetch error:", err);
     res.status(500).json({ error: "Failed to fetch recursive contents" });
   }
 };

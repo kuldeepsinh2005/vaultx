@@ -17,12 +17,19 @@ import {
   Lock,
   AlertCircle,
   Database,
-  ArrowRight
+  ArrowRight,
+  Share2,
+  Users,
+  RefreshCw
 } from "lucide-react";
 
 // Reusable UI Components
 import Sidebar from "../components/layout/Sidebar";
 import Header from "../components/layout/Header";
+import SyncKeysModal from "../components/SyncKeysModal";
+// Add this near the top of MyFiles.jsx
+import ShareModal from "../components/ShareModal";
+import ManageAccessModal from "../components/ManageAccessModal";
 import { ChevronRight, ChevronDown } from "lucide-react";
 import axios from "axios";
 import JSZip from "jszip";
@@ -84,13 +91,13 @@ const MyFiles = () => {
   const [folderStack, setFolderStack] = useState([]);
   const [movingFolder, setMovingFolder] = useState(null);
   const [deletingItem, setDeletingItem] = useState(null);
-
-
+  const [shareTarget, setShareTarget] = useState(null);
+  const [manageAccessTarget, setManageAccessTarget] = useState(null);
   const [showCreateFolder, setShowCreateFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   // const [moveTarget, setMoveTarget] = useState(null);
   const [treeVersion, setTreeVersion] = useState(0);
-
+  const [syncTarget, setSyncTarget] = useState(null);
   const [movingItem, setMovingItem] = useState(null);
   const [folderTree, setFolderTree] = useState([]);
 
@@ -588,7 +595,15 @@ const MyFiles = () => {
                               >
                                 Delete
                               </button>
-
+                              <button 
+                                onClick={() => {
+                                  if(!privateKey) { navigate("/unlock"); return; }
+                                  setShareTarget(folder); // ✅ Pass the folder object
+                                }}
+                                className="ml-3 text-blue-400 text-xs font-bold hover:underline"
+                              >
+                                Share
+                              </button>
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -598,7 +613,24 @@ const MyFiles = () => {
                                 >
                                   {decryptingId === folder._id ? downloadPhase : "Download"}
                                 </button>
-
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setManageAccessTarget(folder); 
+                                }}
+                                className="ml-3 text-amber-400 text-xs font-bold hover:underline flex items-center gap-1 inline-flex"
+                              >
+                                <Users size={12} /> Access
+                              </button>
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSyncTarget(folder);
+                                }}
+                                className="ml-3 text-indigo-400 hover:text-indigo-300 text-xs font-bold hover:underline flex items-center gap-1 inline-flex"
+                              >
+                                <RefreshCw size={12} /> Sync
+                              </button>
                               </td>
                             </tr>
                           ))}
@@ -674,6 +706,39 @@ const MyFiles = () => {
                                   Delete
                                 </button>
 
+                                <button 
+                                  onClick={() => {
+                                    if (!privateKey) {
+                                      navigate("/unlock");
+                                      return;
+                                    }
+                                    setShareTarget(file);
+                                  }} 
+                                  className="p-2.5 bg-slate-800 text-slate-300 hover:bg-indigo-600 hover:text-white rounded-xl transition-all shadow-md group-hover:shadow-[0_0_15px_-3px_rgba(79,70,229,0.3)]"
+                                  title="Share Securely"
+                                >
+                                  <Share2 size={18} /> {/* Assuming you imported Share2 from lucide-react, or use text "Share" */}
+                                </button>
+                                <button 
+                                  onClick={(e) => { 
+                                    e.stopPropagation(); 
+                                    setManageAccessTarget(file); 
+                                  }} 
+                                  className="p-2.5 bg-slate-800 text-slate-300 hover:bg-amber-500 hover:text-white rounded-xl transition-all shadow-md group-hover:shadow-[0_0_15px_-3px_rgba(245,158,11,0.3)]"
+                                  title="Manage Access"
+                                >
+                                  <Users size={18} />
+                                </button>
+                                <button 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSyncTarget(file); // Trigger the modal with the file object
+                                  }}
+                                  className="p-2.5 bg-slate-800 text-slate-300 hover:bg-indigo-500 hover:text-white rounded-xl transition-all shadow-md group-hover:shadow-[0_0_15px_-3px_rgba(99,102,241,0.3)]"
+                                  title="Sync File Key"
+                                >
+                                  <RefreshCw size={18} />
+                                </button>
                               </td>
 
 
@@ -781,7 +846,27 @@ const MyFiles = () => {
             </div>
           </div>
         )}
-
+      {shareTarget && (
+        <ShareModal 
+          isOpen={!!shareTarget} 
+          onClose={() => setShareTarget(null)} 
+          item={shareTarget} 
+        />
+      )}
+      {manageAccessTarget && (
+        <ManageAccessModal 
+          isOpen={!!manageAccessTarget} 
+          onClose={() => setManageAccessTarget(null)} 
+          item={manageAccessTarget} 
+        />
+      )}
+      {syncTarget && (
+        <SyncKeysModal 
+          isOpen={!!syncTarget} 
+          onClose={() => setSyncTarget(null)} 
+          item={syncTarget} 
+        />
+      )}
     </div>
   );
 };

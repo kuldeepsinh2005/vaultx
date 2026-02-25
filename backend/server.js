@@ -62,7 +62,7 @@ app.use("/api/folders", require("./routes/folder.route"));
 app.use("/api/trash", require("./routes/trash.routes"));
 app.use("/api/billing", require("./routes/billing.route"));
 app.use("/api/debug", require("./routes/debug.route"));
-
+app.use("/api/shares", require("./routes/share.route"));
 // --- 6. Server Startup ---
 const PORT = process.env.PORT || 5000;
 const startServer = async () => {

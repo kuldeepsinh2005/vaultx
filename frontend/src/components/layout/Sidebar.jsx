@@ -8,8 +8,8 @@ import {
   LogOut, 
   User,
   Trash,
-  CreditCard
-  
+  CreditCard,
+  Users // ✅ IMPORTED NEW ICON
 } from "lucide-react";
 import { Logo } from "./Logo";
 
@@ -17,14 +17,14 @@ const Sidebar = () => {
   const { user, logout } = useAuth();
   const location = useLocation();
 
-  // Define your navigation items here for easy maintenance
+  // ✅ ADDED "Shared with me" to the navItems array
   const navItems = [
     { name: "Dashboard", path: "/dashboard", icon: LayoutDashboard },
     { name: "My Vault", path: "/files", icon: Database },
+    { name: "Shared with me", path: "/shared", icon: Users }, 
     { name: "Billing & Usage", path: "/billing", icon: CreditCard }, 
     { name: "Trash", path: "/trash", icon: Trash },
   ];
-
 
   return (
     <aside className="w-20 lg:w-64 bg-slate-950/50 backdrop-blur-xl border-r border-slate-800/50 flex flex-col items-center lg:items-start transition-all z-50">

@@ -12,6 +12,7 @@ import AccountSettings from "./pages/AccountSettings";
 import UnlockVault from "./pages/UnlockVault";
 import Trash from "./pages/Trash";
 import Billing from "./pages/Billing";
+import SharedWithMe from "./pages/SharedWithMe";
 
 import ProtectedRoute from "./components/ProtectedRoute";
 import PublicRoute from "./components/PublicRoute";
@@ -118,7 +119,14 @@ function App() {
                   </ProtectedRoute>
                 }
               />
-
+              <Route 
+                path="/shared" 
+                element={
+                  <ProtectedRoute>
+                    <SharedWithMe />
+                  </ProtectedRoute>
+                } 
+              />
 
               {/* 🛸 Catch-all Route */}
               {/* If the URL doesn't match anything, send them to dashboard */}
