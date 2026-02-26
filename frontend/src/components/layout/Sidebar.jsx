@@ -1,4 +1,3 @@
-// frontend/src/components/layout/Sidebar.jsx
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
@@ -9,7 +8,8 @@ import {
   User,
   Trash,
   CreditCard,
-  Users // ✅ IMPORTED NEW ICON
+  Users,
+  Settings // ✅ IMPORTED NEW SETTINGS ICON
 } from "lucide-react";
 import { Logo } from "./Logo";
 
@@ -17,12 +17,13 @@ const Sidebar = () => {
   const { user, logout } = useAuth();
   const location = useLocation();
 
-  // ✅ ADDED "Shared with me" to the navItems array
+  // ✅ ADDED "Account Settings" to the navItems array
   const navItems = [
     { name: "Dashboard", path: "/dashboard", icon: LayoutDashboard },
     { name: "My Vault", path: "/files", icon: Database },
     { name: "Shared with me", path: "/shared", icon: Users }, 
     { name: "Billing & Usage", path: "/billing", icon: CreditCard }, 
+    { name: "Account Settings", path: "/account", icon: Settings }, // ✅ NEW ITEM
     { name: "Trash", path: "/trash", icon: Trash },
   ];
 

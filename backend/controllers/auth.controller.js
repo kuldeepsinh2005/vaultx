@@ -83,6 +83,7 @@ exports.verifyEmailAndRegister = async (req, res, next) => {
     res.cookie('refreshToken', refreshToken, { httpOnly: true, maxAge: 10*24*60*60*1000 });
 
     user.encryptedPrivateKey = encryptedPrivateKey;
+    user.recoveryEncryptedKey = req.body.recoveryEncryptedKey; // ✅ Add this line
     await user.save();
 
     if (!encryptedPrivateKey) {
@@ -157,12 +158,22 @@ exports.loginUser = async (req, res, next) => {
 // @desc Logout user
 // @route POST /api/auth/logout
 // @access Private
+// @desc Logout user
+// @route POST /api/auth/logout
+// @access Private
 exports.logoutUser = async (req, res, next) => {
   try {
+    // 1. Remove refresh token from database
     await User.findByIdAndUpdate(req.user._id, { $unset: { refreshToken: 1 } }, { new: true });
 
-    const options = { httpOnly: true, secure: process.env.NODE_ENV === 'production' };
+    // 2. Options MUST identically match how they were set in loginUser!
+    const options = { 
+      httpOnly: true, 
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict' // ✅ Added this to match the login options
+    };
 
+    // 3. Clear the cookies
     res.clearCookie('accessToken', options);
     res.clearCookie('refreshToken', options);
 
@@ -237,6 +248,49 @@ exports.loginWithRefreshToken = async (req, res, next) => {
         profileImage: user.profileImage,
       }
     });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// @desc Fetch the Recovery Encrypted Key for a locked out user
+// @route POST /api/auth/recovery-key
+// @access Public
+exports.getRecoveryKey = async (req, res, next) => {
+  try {
+    const { email } = req.body;
+    const user = await User.findOne({ email });
+
+    if (!user) return res.status(404).json({ error: "User not found" });
+    if (!user.recoveryEncryptedKey) return res.status(400).json({ error: "No recovery key established for this account" });
+
+    res.json({ success: true, recoveryEncryptedKey: user.recoveryEncryptedKey });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// @desc Reset Password using the decrypted Private Key
+// @route POST /api/auth/reset-password
+// @access Public
+exports.resetPasswordWithRecovery = async (req, res, next) => {
+  try {
+    const { email, newPassword, newEncryptedPrivateKey } = req.body;
+
+    if (!email || !newPassword || !newEncryptedPrivateKey) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    user.password = newPassword; // Pre-save hook will hash this
+    user.encryptedPrivateKey = newEncryptedPrivateKey;
+    // We leave recoveryEncryptedKey untouched so their paper code still works!
+    
+    await user.save();
+
+    res.json({ success: true, message: "Password reset successfully!" });
   } catch (err) {
     next(err);
   }

@@ -1,4 +1,3 @@
-// frontend/src/pages/Login.jsx
 import { useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useNavigate, Link } from "react-router-dom";
@@ -78,9 +77,13 @@ const Login = () => {
                 <label className="text-slate-400 text-[10px] uppercase tracking-[0.2em] font-bold">
                   Passphrase
                 </label>
-                <button type="button" className="text-[10px] text-indigo-400 hover:text-white font-bold transition-colors uppercase tracking-widest">
+                {/* ✅ CHANGED FROM BUTTON TO LINK */}
+                <Link 
+                  to="/forgot-password" 
+                  className="text-[10px] text-indigo-400 hover:text-white font-bold transition-colors uppercase tracking-widest"
+                >
                   Reset
-                </button>
+                </Link>
               </div>
               <Input
                 type="password"

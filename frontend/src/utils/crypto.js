@@ -196,3 +196,11 @@ export function base64ToUint8Array(base64) {
   }
   return bytes;
 }
+
+// Generate a highly secure, readable 24-character recovery code
+export function generateRecoveryCode() {
+  const array = new Uint8Array(12);
+  window.crypto.getRandomValues(array);
+  const hex = Array.from(array).map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
+  return `VX-${hex.slice(0,6)}-${hex.slice(6,12)}-${hex.slice(12,18)}-${hex.slice(18,24)}`;
+}

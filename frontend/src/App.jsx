@@ -13,7 +13,7 @@ import UnlockVault from "./pages/UnlockVault";
 import Trash from "./pages/Trash";
 import Billing from "./pages/Billing";
 import SharedWithMe from "./pages/SharedWithMe";
-
+import ForgotPassword from "./pages/ForgotPassword"; // ✅ ADD THIS IMPORT
 import ProtectedRoute from "./components/ProtectedRoute";
 import PublicRoute from "./components/PublicRoute";
 import VaultGuard from "./components/VaultGuard";
@@ -48,6 +48,14 @@ function App() {
                 }
               />
 
+              <Route
+                path="/forgot-password"
+                element={
+                  <PublicRoute>
+                    <ForgotPassword />
+                  </PublicRoute>
+                }
+              />  
               {/* 🔐 Private pages */}
               <Route
                 path="/dashboard"

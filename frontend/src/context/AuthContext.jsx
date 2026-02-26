@@ -34,15 +34,15 @@ export const AuthProvider = ({ children }) => {
       async (error) => {
         const originalRequest = error.config;
 
-        // If 401 and we haven't retried yet
-        // If 401 and we haven't retried yet
         if (error.response?.status === 401 && !originalRequest._retry) {
           
-          // ✅ FIX: Added /auth/logout to the Guard Clause!
+          // ✅ FIX 1: Add the recovery routes to the Ignore List!
           if (
             originalRequest.url.includes('/auth/refresh') || 
             originalRequest.url.includes('/auth/login') ||
-            originalRequest.url.includes('/auth/logout') 
+            originalRequest.url.includes('/auth/logout') ||
+            originalRequest.url.includes('/auth/recovery-key') || // ADDED
+            originalRequest.url.includes('/auth/reset-password')  // ADDED
           ) {
              return Promise.reject(error);
           }
@@ -50,31 +50,27 @@ export const AuthProvider = ({ children }) => {
           originalRequest._retry = true;
 
           try {
-            // Attempt to refresh the token
             const res = await api.post("/auth/refresh"); 
-            
             if (res.data?.user) {
               setUser(res.data.user);
               setIsAuthenticated(true);
             }
-            
-            // Retry the original failed request
             return api(originalRequest); 
           } catch (err) {
-            // 🚨 If refresh fails, clear the state
             setUser(null);
             setIsAuthenticated(false);
             
-            // ✅ THE FIX: Only force a redirect if they aren't already on the auth pages!
-            // This stops the infinite hard-reload loop on mount.
+            // Allow all public routes to bypass the forced redirect
             if (
               window.location.pathname !== "/login" && 
-              window.location.pathname !== "/register"
+              window.location.pathname !== "/register" &&
+              window.location.pathname !== "/forgot-password"
             ) {
               window.location.href = "/login"; 
             }
             
-            return Promise.reject(err);
+            // ✅ FIX 2: Return the ORIGINAL 'error', not the refresh 'err'!
+            return Promise.reject(error); 
           }
         }
         return Promise.reject(error);
@@ -82,8 +78,7 @@ export const AuthProvider = ({ children }) => {
     );
 
     return () => api.interceptors.response.eject(interceptor);
-  }, []); // Run once on mount
-
+  }, []);
   // 3. Check user session on mount
   useEffect(() => {
     const checkUserSession = async () => {

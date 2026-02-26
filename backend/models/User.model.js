@@ -23,7 +23,10 @@ const UserSchema = new mongoose.Schema({
     type: Object, // stores JSON backup object
     required: false,
   },
-
+  recoveryEncryptedKey: {
+    type: Object, 
+    required: false
+  },
   usedStorage: { 
     type: Number, 
     default: 0 

@@ -10,7 +10,9 @@ const {
   loginUser,
   logoutUser,
   getCurrentUser,
-  loginWithRefreshToken
+  loginWithRefreshToken,
+  getRecoveryKey,
+  resetPasswordWithRecovery
 } = require('../controllers/auth.controller');
 
 // Registration step 1: request code
@@ -25,9 +27,10 @@ router.post('/login', asyncHandler(loginUser));
 // Login with refresh token
 router.post('/refresh', asyncHandler(loginWithRefreshToken));
 // Logout
-router.post('/logout', asyncHandler(logoutUser));
+router.post('/logout',verifyJWT, asyncHandler(logoutUser));
 // Current user
 router.get('/me', verifyJWT, asyncHandler(getCurrentUser));
-
+router.post('/recovery-key', asyncHandler(getRecoveryKey));
+router.post('/reset-password', asyncHandler(resetPasswordWithRecovery));
 
 module.exports = router;
