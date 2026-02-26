@@ -12,12 +12,12 @@ const {
   getFolderTree,
   downloadFolder,
   getFolderCount,
-  getFolderContentsRecursive
+  getFolderContentsRecursive,
 } = require("../controllers/folder.controller");
 
 router.post("/", verifyJWT, createFolder);
 router.get("/", verifyJWT, getFolders);
-router.patch("/:id", verifyJWT, renameFolder);
+router.patch('/:id/rename', verifyJWT, renameFolder);
 router.patch("/:id/delete", verifyJWT, deleteFolder);
 router.patch("/:id/move", verifyJWT, moveFolder);
 router.get("/tree", verifyJWT, getFolderTree);

@@ -14,7 +14,8 @@ const {
   finalizeUpload,
   initiateMultipart,
   completeMultipart,
-  abortMultipart
+  abortMultipart,
+  renameFile
 } = require("../controllers/file.controller");
 const { enforceBillingClear } = require("../middleware/billing.middleware");
 
@@ -42,6 +43,6 @@ router.post("/finalize", verifyJWT, finalizeUpload);
 router.post("/multipart/initiate", verifyJWT, initiateMultipart);
 router.post("/multipart/complete", verifyJWT, completeMultipart);
 router.post("/multipart/abort", verifyJWT, abortMultipart);
-
+router.patch('/:id/rename', verifyJWT, renameFile);
 
 module.exports = router;

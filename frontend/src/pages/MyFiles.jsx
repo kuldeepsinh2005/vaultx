@@ -20,7 +20,8 @@ import {
   ArrowRight,
   Share2,
   Users,
-  RefreshCw
+  RefreshCw,
+  Edit2
 } from "lucide-react";
 
 // Reusable UI Components
@@ -30,6 +31,7 @@ import SyncKeysModal from "../components/SyncKeysModal";
 // Add this near the top of MyFiles.jsx
 import ShareModal from "../components/ShareModal";
 import ManageAccessModal from "../components/ManageAccessModal";
+import RenameModal from "../components/RenameModal";
 import { ChevronRight, ChevronDown } from "lucide-react";
 import axios from "axios";
 import JSZip from "jszip";
@@ -106,7 +108,7 @@ const MyFiles = () => {
 
   const isEmpty = !error && folders.length === 0 && files.length === 0;
   const hasContent = !error && (folders.length > 0 || files.length > 0);
-
+  const [renamingItem, setRenamingItem] = useState(null);
 
 
   const navigate = useNavigate();
@@ -631,6 +633,15 @@ const MyFiles = () => {
                               >
                                 <RefreshCw size={12} /> Sync
                               </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setRenamingItem(folder);
+                                }}
+                                className="text-emerald-400 text-xs font-bold hover:underline ml-3"
+                              >
+                                Rename
+                              </button>
                               </td>
                             </tr>
                           ))}
@@ -705,7 +716,15 @@ const MyFiles = () => {
                                 >
                                   Delete
                                 </button>
-
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setRenamingItem(file);
+                                  }}
+                                  className="ml-3 text-emerald-400 text-xs font-bold"
+                                >
+                                  Rename
+                                </button>
                                 <button 
                                   onClick={() => {
                                     if (!privateKey) {
@@ -865,6 +884,14 @@ const MyFiles = () => {
           isOpen={!!syncTarget} 
           onClose={() => setSyncTarget(null)} 
           item={syncTarget} 
+        />
+      )}
+      {renamingItem && (
+        <RenameModal 
+          isOpen={!!renamingItem} 
+          onClose={() => setRenamingItem(null)} 
+          item={renamingItem}
+          onSuccess={refreshAll} // Automatically reloads the list when done!
         />
       )}
     </div>

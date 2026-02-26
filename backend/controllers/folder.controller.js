@@ -48,32 +48,30 @@ exports.getFolders = async (req, res) => {
     res.status(500).json({ error: "Failed to fetch folders" });
   }
 };
-
-// PATCH /api/folders/:id
+// Rename a folder
 exports.renameFolder = async (req, res) => {
   try {
     const { name } = req.body;
+    const folderId = req.params.id;
 
-    if (!name) {
-      return res.status(400).json({ error: "New folder name required" });
+    if (!name || name.trim() === "") {
+      return res.status(400).json({ error: "New folder name is required" });
     }
 
     const folder = await Folder.findOneAndUpdate(
-      { _id: req.params.id, owner: req.user._id },
-      { name },
+      { _id: folderId, owner: req.user._id, isDeleted: false },
+      { name: name.trim() },
       { new: true }
     );
 
-    if (!folder) {
-      return res.status(404).json({ error: "Folder not found" });
-    }
+    if (!folder) return res.status(404).json({ error: "Folder not found" });
 
     res.json({ success: true, folder });
   } catch (err) {
-    res.status(500).json({ error: "Rename failed" });
+    console.error("Rename folder error:", err);
+    res.status(500).json({ error: "Failed to rename folder" });
   }
 };
-
 // exports.deleteFolder = async (req, res) => {
 //   try {
 //     const folderId = req.params.id;
@@ -379,3 +377,4 @@ exports.getFolderContentsRecursive = async (req, res) => {
     res.status(500).json({ error: "Failed to fetch recursive contents" });
   }
 };
+

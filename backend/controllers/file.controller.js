@@ -382,3 +382,28 @@ exports.abortMultipart = async (req, res) => {
     res.status(500).json({ error: "Failed to abort" });
   }
 };
+
+// Rename a file
+exports.renameFile = async (req, res) => {
+  try {
+    const { name } = req.body;
+    const fileId = req.params.id;
+
+    if (!name || name.trim() === "") {
+      return res.status(400).json({ error: "New file name is required" });
+    }
+
+    const file = await File.findOneAndUpdate(
+      { _id: fileId, owner: req.user._id, isDeleted: false },
+      { originalName: name.trim() },
+      { new: true }
+    );
+
+    if (!file) return res.status(404).json({ error: "File not found" });
+
+    res.json({ success: true, file });
+  } catch (err) {
+    console.error("Rename file error:", err);
+    res.status(500).json({ error: "Failed to rename file" });
+  }
+};
