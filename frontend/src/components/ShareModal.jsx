@@ -14,15 +14,13 @@ export default function ShareModal({ isOpen, onClose, item }) {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ type: "", text: "" });
-  const [progress, setProgress] = useState(""); // To show "Processing 5/50..."
+  const [progress, setProgress] = useState(""); 
 
-  // Check if we are sharing a folder or a file
-  // (Assuming folders have a specific flag, or lack a 'size'/'mimeType' in a certain way. 
-  // Ideally, pass a type prop, but let's detect it based on your data structure)
   const isFolder = !item.originalName && !!item.name; 
 
   if (!isOpen || !item) return null;
-const handleShare = async (e) => {
+  
+  const handleShare = async (e) => {
     e.preventDefault();
     if (!email.trim()) return;
     if (!privateKey) { navigate("/unlock"); return; }
@@ -31,22 +29,18 @@ const handleShare = async (e) => {
     setMessage({ type: "", text: "" });
 
     try {
-      // 1. Get Recipient Public Key
       const userRes = await api.post("/shares/public-key", { email });
       const { userId, publicKey } = userRes.data;
 
       if (isFolder) {
-        // === FOLDER SHARING ===
         setProgress("Fetching structure...");
         
-        // A. Get files AND folders (✅ NEW DEDICATED SHARE ROUTE)
         const contentsRes = await api.get(`/shares/folder/${item._id}/recursive-contents`);
         const { files, folders } = contentsRes.data;
 
         const filePayload = [];
-        const folderPayload = folders.map(f => f._id); // ✅ Extract Folder IDs
+        const folderPayload = folders.map(f => f._id); 
 
-        // B. Re-wrap File Keys
         for (let i = 0; i < files.length; i++) {
           const file = files[i];
           setProgress(`Encrypting ${i + 1}/${files.length}`);
@@ -64,18 +58,16 @@ const handleShare = async (e) => {
           }
         }
 
-        // C. Send Bulk Request with BOTH lists
         setProgress("Finalizing...");
         await api.post("/shares/bulk", {
           fileItems: filePayload,
-          folderItems: folderPayload, // ✅ Send folders
+          folderItems: folderPayload, 
           sharedWithUserId: userId
         });
 
         setMessage({ type: "success", text: `Shared folder & ${filePayload.length} files!` });
 
       } else {
-        // === SINGLE FILE SHARING LOGIC ===
         const aesKey = await unwrapAESKeyWithPrivateKey(item.wrappedKey, privateKey);
         const newlyWrappedKey = await wrapAESKeyWithPublicKey(aesKey, publicKey);
 
@@ -107,36 +99,36 @@ const handleShare = async (e) => {
   };
 
   return (
-    <div className="fixed inset-0 bg-[#020617]/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-slate-900 rounded-3xl p-8 w-full max-w-md border border-slate-800 shadow-[0_0_40px_-15px_rgba(0,0,0,0.5)] relative">
+    <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-3xl p-8 w-full max-w-md shadow-xl border border-slate-100 relative">
         <button 
           onClick={onClose} 
-          className="absolute top-6 right-6 text-slate-500 hover:text-slate-300 bg-slate-800/50 hover:bg-slate-800 p-2 rounded-full transition-all"
+          className="absolute top-6 right-6 text-slate-400 hover:text-slate-600 bg-slate-50 hover:bg-slate-100 p-2 rounded-full transition-all"
         >
           <X size={18} />
         </button>
 
         <div className="flex items-center gap-4 mb-6">
-          <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 flex items-center justify-center text-indigo-400 border border-indigo-500/20">
+          <div className="w-12 h-12 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-600 border border-blue-100 shadow-sm">
             <Share2 size={24} />
           </div>
           <div>
-            <h3 className="text-white font-bold text-xl tracking-tight">Secure Share</h3>
-            <p className="text-slate-400 text-xs flex items-center gap-1 mt-1">
-              <Lock size={10} /> End-to-End Encrypted
+            <h3 className="text-slate-900 font-bold text-xl tracking-tight">Secure Share</h3>
+            <p className="text-emerald-600 font-semibold text-xs flex items-center gap-1.5 mt-1">
+              <Lock size={12} strokeWidth={2.5} /> End-to-End Encrypted
             </p>
           </div>
         </div>
 
-        <div className="bg-slate-950/50 border border-slate-800/50 rounded-xl p-3 mb-6 flex items-center gap-3">
-          <div className="text-indigo-400">
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 mb-6 flex items-center gap-3 shadow-sm">
+          <div className="text-slate-500">
             {isFolder ? <Folder size={20} /> : <Share2 size={20} />}
           </div>
           <div className="overflow-hidden">
-            <p className="text-[10px] uppercase font-bold tracking-wider text-slate-500 mb-0.5">
+            <p className="text-[10px] uppercase font-bold tracking-widest text-slate-500 mb-0.5">
               Sharing {isFolder ? "Folder" : "File"}
             </p>
-            <p className="text-slate-200 text-sm font-medium truncate">
+            <p className="text-slate-900 text-sm font-semibold truncate">
               {item.name || item.originalName}
             </p>
           </div>
@@ -144,24 +136,24 @@ const handleShare = async (e) => {
 
         <form onSubmit={handleShare}>
           <div className="mb-6">
-            <label className="block text-[10px] uppercase font-bold tracking-wider text-slate-500 mb-2">
-              Recipient Email Address
+            <label className="block text-sm font-semibold text-slate-700 mb-2">
+              Recipient Work Email
             </label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="operator@vaultx.com"
-              className="w-full bg-slate-950/50 text-white border border-slate-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all placeholder:text-slate-600"
+              placeholder="operator@company.com"
+              className="w-full bg-white text-slate-900 border border-slate-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-600/20 transition-all placeholder:text-slate-400 shadow-sm"
               required
             />
           </div>
 
           {message.text && (
-            <div className={`p-4 rounded-xl text-sm mb-6 flex items-start gap-2 border ${
+            <div className={`p-4 rounded-xl text-sm mb-6 flex items-start gap-2 border font-medium shadow-sm ${
               message.type === "success" 
-                ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" 
-                : "bg-red-500/10 text-red-400 border-red-500/20"
+                ? "bg-emerald-50 text-emerald-700 border-emerald-200" 
+                : "bg-red-50 text-red-700 border-red-200"
             }`}>
               {message.text}
             </div>
@@ -172,14 +164,14 @@ const handleShare = async (e) => {
               type="button" 
               onClick={onClose} 
               disabled={loading} 
-              className="px-5 py-2.5 bg-transparent hover:bg-slate-800 text-slate-300 rounded-xl text-sm font-bold transition-colors"
+              className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm font-semibold transition-colors shadow-sm"
             >
               Cancel
             </button>
             <button 
               type="submit" 
               disabled={loading} 
-              className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-[0_0_20px_-5px_rgba(79,70,229,0.4)] disabled:opacity-50 disabled:shadow-none"
+              className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold flex items-center gap-2 transition-all shadow-sm shadow-blue-600/20 disabled:opacity-50 disabled:shadow-none"
             >
               {loading ? (
                 <><Loader2 className="w-4 h-4 animate-spin" /> {progress || "Processing..."}</>

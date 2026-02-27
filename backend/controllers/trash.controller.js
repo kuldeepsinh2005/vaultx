@@ -4,7 +4,8 @@ const Folder = require("../models/Folder.model");
 const { getStorageProvider } = require("../storage");
 const StorageUsage = require("../models/StorageUsage.model");
 const User = require("../models/User.model");
-
+const SharedFile = require("../models/SharedFile.model");
+const SharedFolder = require("../models/SharedFolder.model");
 
 
 exports.getTrash = async (req, res) => {
@@ -117,7 +118,6 @@ exports.permanentDeleteFile = async (req, res) => {
     try {
       await storage.delete(file.storagePath);
     } catch (storageErr) {
-      // Handle both Local (ENOENT) and S3 (NoSuchKey/NotFound) missing file errors
       if (storageErr.code !== "ENOENT" && storageErr.code !== "NoSuchKey" && storageErr.name !== "NotFound") {
         console.error(`[Storage] Hard fail deleting ${file.storagePath}:`, storageErr.message);
         return res.status(500).json({ error: "Storage provider failed to delete the file." });
@@ -131,17 +131,19 @@ exports.permanentDeleteFile = async (req, res) => {
       { effectiveTo: new Date() }
     );
 
-    // 3️⃣ Free quota safely (Anti-Negative Storage Protection)
+    // 3️⃣ Free quota safely
     const updatedUser = await User.findByIdAndUpdate(file.owner, {
       $inc: { usedStorage: -file.size },
     }, { new: true });
 
-    // Fallback: If out-of-sync DB causes negative storage, reset it to 0
     if (updatedUser && updatedUser.usedStorage < 0) {
       await User.findByIdAndUpdate(file.owner, { usedStorage: 0 });
     }
 
-    // 4️⃣ Delete DB record
+    // 4️⃣ ✅ CLEANUP: Delete all share records for this file
+    await SharedFile.deleteMany({ file: file._id });
+
+    // 5️⃣ Delete DB record
     await File.deleteOne({ _id: file._id });
 
     res.json({ success: true });
@@ -152,13 +154,11 @@ exports.permanentDeleteFile = async (req, res) => {
   }
 };
 
-
 // ✅ NEW: The Enterprise Bulk Processing Engine
 const permanentDeleteFolderFlattened = async (folderId, userId) => {
   const storage = getStorageProvider();
 
   // 🚀 PHASE 1: FLATTEN THE FOLDER TREE
-  // Find all nested folder IDs in a few quick loops instead of deep recursion
   const folderIdsToDelete = [folderId];
   let queue = [folderId];
 
@@ -186,7 +186,7 @@ const permanentDeleteFolderFlattened = async (folderId, userId) => {
   let totalBytesFreed = 0;
   const successfulFileIds = [];
 
-  // 🚀 PHASE 2: BATCH S3 DELETIONS (Fast, but safe for the network)
+  // 🚀 PHASE 2: BATCH S3 DELETIONS
   const BATCH_SIZE = 10; 
   for (let i = 0; i < filesToDelete.length; i += BATCH_SIZE) {
     const batch = filesToDelete.slice(i, i + BATCH_SIZE);
@@ -207,34 +207,51 @@ const permanentDeleteFolderFlattened = async (folderId, userId) => {
       }
     });
 
-    await Promise.all(batchPromises); // Wait for the batch of 10 to finish before starting the next
+    await Promise.all(batchPromises); 
   }
 
-  // 🚀 PHASE 3: MONGODB BULK OPERATIONS (No database hammering!)
+  // 🚀 PHASE 3: MONGODB BULK OPERATIONS
   if (successfulFileIds.length > 0) {
-    // 1. Stop billing for all deleted files simultaneously
+    // 1. Stop billing for all deleted files
     await StorageUsage.updateMany(
       { file: { $in: successfulFileIds }, effectiveTo: null },
       { effectiveTo: new Date() }
     );
 
-    // 2. Free up the user's storage quota in ONE atomic math calculation
+    // 2. Free up the user's storage quota
     const updatedUser = await User.findByIdAndUpdate(userId, {
       $inc: { usedStorage: -totalBytesFreed }
     }, { new: true });
 
-    // Safety fallback
     if (updatedUser && updatedUser.usedStorage < 0) {
       await User.findByIdAndUpdate(userId, { usedStorage: 0 });
     }
 
-    // 3. Delete all file records simultaneously
+    // 3. ✅ CLEANUP: Delete all shared file records for the files we successfully deleted
+    await SharedFile.deleteMany({ file: { $in: successfulFileIds } });
+
+    // 4. Delete all file records simultaneously
     await File.deleteMany({ _id: { $in: successfulFileIds } });
   }
 
-  // 4. Delete all folder records simultaneously
+  // 5. ✅ CLEANUP: Delete all shared folder records tied to any folder in our flattened tree
+  await SharedFolder.deleteMany({ folder: { $in: folderIdsToDelete } });
+
+  // 6. Delete all folder records simultaneously
   await Folder.deleteMany({ _id: { $in: folderIdsToDelete } });
 };
+
+exports.permanentDeleteFolder = async (req, res) => {
+  try {
+    await permanentDeleteFolderFlattened(req.params.id, req.user._id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Folder permanent delete error:", err);
+    res.status(500).json({ error: "Permanent folder delete failed" });
+  }
+};
+
+
 exports.permanentDeleteFolder = async (req, res) => {
   try {
     // ✅ Call the new bulk engine

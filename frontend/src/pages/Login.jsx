@@ -17,12 +17,12 @@ const Login = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false); // Added for button state
+  const [loading, setLoading] = useState(false); 
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
-    setLoading(true); // UI feedback
+    setLoading(true); 
 
     const success = await login(email, password, true);
     if (success) {
@@ -34,37 +34,40 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#020617] flex flex-col items-center justify-center p-6 relative">
-      {/* Background radial glow */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-indigo-500/10 blur-[120px] pointer-events-none" />
+    // Clean, soft slate background
+    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 relative overflow-hidden">
+      
+      {/* Professional subtle blue gradient background accents */}
+      <div className="absolute top-0 right-0 -mr-40 -mt-40 w-[600px] h-[600px] bg-blue-100/50 blur-[100px] rounded-full pointer-events-none" />
+      <div className="absolute bottom-0 left-0 -ml-40 -mb-40 w-[600px] h-[600px] bg-slate-200/50 blur-[100px] rounded-full pointer-events-none" />
 
-      <main className="w-full max-w-[400px] z-10">
-        <div className="flex justify-center mb-10">
+      <main className="w-full max-w-[420px] z-10">
+        <div className="flex justify-center mb-8 text-slate-900">
           <Logo size="lg" />
         </div>
 
         <Card className="p-8 md:p-10">
-          <header className="mb-8">
-            <h2 className="text-white text-2xl font-bold tracking-tight">Access Vault</h2>
-            <p className="text-slate-500 text-sm mt-1 font-medium">Unlock your encrypted data</p>
+          <header className="mb-8 text-center">
+            <h2 className="text-slate-900 text-2xl font-bold tracking-tight">Welcome back</h2>
+            <p className="text-slate-500 text-sm mt-1.5 font-medium">Log in to your secure workspace</p>
           </header>
 
-          {/* Error Message */}
+          {/* Clean, high-contrast error message */}
           {error && (
-            <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-2xl flex items-center gap-3 text-red-400 text-xs font-bold animate-in fade-in duration-300">
-              <ShieldAlert size={18} />
+            <div className="mb-6 p-4 bg-red-50 border border-red-100 rounded-xl flex items-center gap-3 text-red-600 text-sm font-medium animate-in fade-in duration-300 shadow-sm">
+              <ShieldAlert size={18} className="text-red-500" />
               {error}
             </div>
           )}
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div className="space-y-1.5">
-              <label className="text-slate-400 text-[10px] uppercase tracking-[0.2em] font-bold ml-1">
-                Security Email
+              <label className="text-slate-700 text-sm font-semibold ml-1 block">
+                Work Email
               </label>
               <Input
                 type="email"
-                placeholder="identity@vaultx.com"
+                placeholder="you@company.com"
                 icon={Mail}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -74,15 +77,14 @@ const Login = () => {
 
             <div className="space-y-1.5">
               <div className="flex justify-between items-center ml-1">
-                <label className="text-slate-400 text-[10px] uppercase tracking-[0.2em] font-bold">
+                <label className="text-slate-700 text-sm font-semibold">
                   Passphrase
                 </label>
-                {/* ✅ CHANGED FROM BUTTON TO LINK */}
                 <Link 
                   to="/forgot-password" 
-                  className="text-[10px] text-indigo-400 hover:text-white font-bold transition-colors uppercase tracking-widest"
+                  className="text-sm text-blue-600 hover:text-blue-700 font-semibold transition-colors"
                 >
-                  Reset
+                  Forgot?
                 </Link>
               </div>
               <Input
@@ -95,24 +97,28 @@ const Login = () => {
               />
             </div>
 
-            <Button type="submit" loading={loading}>
-              {!loading && <LogIn size={18} className="mr-1" />}
-              {loading ? "Decrypting..." : "Unlock Vault"}
-            </Button>
+            <div className="pt-2">
+              <Button type="submit" loading={loading} variant="primary">
+                {!loading && <LogIn size={18} className="mr-1.5" />}
+                {loading ? "Authenticating..." : "Sign In"}
+              </Button>
+            </div>
           </form>
 
-          <div className="mt-10 pt-8 border-t border-slate-800/60 text-center">
+          <div className="mt-8 pt-6 border-t border-slate-100 text-center">
             <p className="text-slate-500 text-sm font-medium">
-              New to VaultX? 
-              <Link to="/register" className="text-indigo-400 font-bold ml-2 hover:text-white transition-colors underline underline-offset-8 decoration-indigo-500/30">
-                Register Device
+              Don't have an account? 
+              <Link to="/register" className="text-blue-600 font-semibold ml-1.5 hover:text-blue-700 transition-colors">
+                Create workspace
               </Link>
             </p>
           </div>
         </Card>
       </main>
 
-      <Footer />
+      <div className="mt-auto pt-8 text-slate-500">
+        <Footer />
+      </div>
     </div>
   );
 };

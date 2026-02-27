@@ -1,3 +1,4 @@
+// frontend/src/pages/ForgotPassword.jsx
 import React, { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
@@ -6,7 +7,8 @@ import { Card } from "../components/ui/Card";
 import { Input } from "../components/ui/Input";
 import { Button } from "../components/ui/Button";
 import { Logo } from "../components/layout/Logo";
-import { Mail, Lock, KeyRound, ChevronLeft } from "lucide-react";
+import { Footer } from "../components/layout/Footer"; // ✅ Added Footer for consistency
+import { Mail, Lock, KeyRound, ChevronLeft, ShieldAlert, ShieldCheck } from "lucide-react"; // ✅ Added Shield icons
 
 export default function ForgotPassword() {
   const { api } = useAuth();
@@ -68,60 +70,79 @@ export default function ForgotPassword() {
   };
 
   return (
-    <div className="min-h-screen bg-[#020617] flex flex-col items-center justify-center p-6 relative">
-      <div className="absolute top-0 w-full h-1/2 bg-indigo-600/5 blur-[120px] pointer-events-none" />
+    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 relative overflow-hidden">
+      {/* Professional subtle blue gradient background accents */}
+      <div className="absolute top-0 right-0 -mr-40 -mt-40 w-[600px] h-[600px] bg-blue-100/50 blur-[100px] rounded-full pointer-events-none" />
+      <div className="absolute bottom-0 left-0 -ml-40 -mb-40 w-[600px] h-[600px] bg-slate-200/50 blur-[100px] rounded-full pointer-events-none" />
 
-      <main className="w-full max-w-[440px] z-10">
-        <div className="flex justify-center mb-10"><Logo size="lg" /></div>
+      <main className="w-full max-w-[420px] z-10">
+        <div className="flex justify-center mb-8 text-slate-900">
+          <Logo size="lg" />
+        </div>
 
         <Card className="p-8 md:p-10">
           <header className="mb-8 text-center md:text-left">
-            <h2 className="text-white text-2xl font-bold tracking-tight">Account Recovery</h2>
-            <p className="text-slate-500 text-sm mt-1">
+            <h2 className="text-slate-900 text-2xl font-bold tracking-tight">Account Recovery</h2>
+            <p className="text-slate-500 text-sm mt-1.5 font-medium">
               {step === 1 ? "Enter your email to find your vault." : "Enter your emergency recovery code."}
             </p>
           </header>
 
           {error && (
-            <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-red-400 text-xs font-bold flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-red-500 block"></span>{error}
+            <div className="mb-6 p-4 bg-red-50 border border-red-100 rounded-xl flex items-center gap-3 text-red-600 text-sm font-medium animate-in fade-in duration-300 shadow-sm">
+              <ShieldAlert size={18} className="text-red-500" />
+              {error}
             </div>
           )}
 
           {message && (
-            <div className="mb-6 p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl text-emerald-400 text-xs font-bold flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 block"></span>{message}
+            <div className="mb-6 p-4 bg-emerald-50 border border-emerald-100 rounded-xl flex items-center gap-3 text-emerald-700 text-sm font-medium animate-in fade-in duration-300 shadow-sm">
+              <ShieldCheck size={18} className="text-emerald-500" />
+              {message}
             </div>
           )}
 
           {step === 1 && (
             <form onSubmit={handleFetchKey} className="space-y-4">
-              <div className="space-y-1">
-                <label className="text-slate-400 text-[10px] uppercase tracking-widest font-bold ml-1">Email</label>
-                <Input type="email" placeholder="john@vaultx.com" icon={Mail} value={email} onChange={(e) => setEmail(e.target.value)} required />
+              <div className="space-y-1.5">
+                <label className="text-slate-700 text-sm font-semibold ml-1 block">Work Email</label>
+                <Input type="email" placeholder="you@company.com" icon={Mail} value={email} onChange={(e) => setEmail(e.target.value)} required />
               </div>
-              <Button type="submit" loading={loading}>{loading ? "Searching..." : "Find Account"}</Button>
-              <Link to="/login" className="text-slate-500 hover:text-white transition-colors text-xs font-bold flex items-center justify-center gap-2 mt-4">
-                <ChevronLeft size={14} /> Back to Login
+              <div className="pt-2">
+                <Button type="submit" loading={loading} variant="primary">
+                  {loading ? "Searching..." : "Find Account"}
+                </Button>
+              </div>
+              <Link to="/login" className="text-slate-500 hover:text-slate-800 transition-colors text-sm font-semibold flex items-center justify-center gap-2 mt-4">
+                <ChevronLeft size={16} /> Back to Login
               </Link>
             </form>
           )}
 
           {step === 2 && (
             <form onSubmit={handleReset} className="space-y-4">
-              <div className="space-y-1">
-                <label className="text-slate-400 text-[10px] uppercase tracking-widest font-bold ml-1">24-Character Recovery Code</label>
-                <Input type="text" placeholder="VX-XXXX-XXXX-XXXX-XXXX" icon={KeyRound} value={recoveryCode} onChange={(e) => setRecoveryCode(e.target.value)} required className="uppercase font-mono text-sm" />
+              <div className="space-y-1.5">
+                <label className="text-slate-700 text-sm font-semibold ml-1 block">24-Character Recovery Code</label>
+                <Input type="text" placeholder="VX-XXXX-XXXX-XXXX-XXXX" icon={KeyRound} value={recoveryCode} onChange={(e) => setRecoveryCode(e.target.value)} required className="uppercase font-mono text-sm tracking-widest" />
               </div>
-              <div className="space-y-1">
-                <label className="text-slate-400 text-[10px] uppercase tracking-widest font-bold ml-1">New Master Password</label>
+              <div className="space-y-1.5">
+                <label className="text-slate-700 text-sm font-semibold ml-1 block">New Master Password</label>
                 <Input type="password" placeholder="••••••••" icon={Lock} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required />
               </div>
-              <Button type="submit" variant="success" loading={loading}>{loading ? "Decrypting & Resetting..." : "Reset Password"}</Button>
+              <div className="pt-2">
+                <Button type="submit" variant="success" loading={loading}>
+                  {loading ? "Decrypting & Resetting..." : "Reset Password"}
+                </Button>
+              </div>
             </form>
           )}
         </Card>
       </main>
+
+      {/* Footer added to match Login/Register pages perfectly */}
+      <div className="mt-auto pt-8 text-slate-500">
+        <Footer />
+      </div>
     </div>
   );
 }

@@ -1,5 +1,7 @@
+// frontend/src/components/ui/Card.jsx
 export const Card = ({ children, className = "" }) => (
-  <div className={`bg-slate-900/40 backdrop-blur-2xl border border-white/10 rounded-[2rem] shadow-2xl ${className}`}>
+  // Pure white card, soft border, very elegant diffused shadow
+  <div className={`bg-white border border-slate-200/60 rounded-2xl shadow-xl shadow-slate-200/50 ${className}`}>
     {children}
   </div>
 );

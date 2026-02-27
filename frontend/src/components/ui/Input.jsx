@@ -1,11 +1,13 @@
+// frontend/src/components/ui/Input.jsx
 export const Input = ({ icon: Icon, ...props }) => (
   <div className="relative group w-full">
     {Icon && (
-      <Icon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500 group-focus-within:text-indigo-400 transition-colors" />
+      <Icon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-blue-600 transition-colors" />
     )}
     <input
       {...props}
-      className={`w-full bg-slate-950/40 border border-slate-800 text-white ${Icon ? 'pl-12' : 'px-6'} pr-4 py-4 rounded-2xl focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-600 font-medium`}
+      // Crisp white input, clear border, beautiful blue focus ring
+      className={`w-full bg-white border border-slate-300 text-slate-900 ${Icon ? 'pl-11' : 'px-4'} pr-4 py-3.5 rounded-xl focus:border-blue-600 focus:ring-[3px] focus:ring-blue-600/10 outline-none transition-all placeholder:text-slate-400 font-medium text-sm shadow-sm`}
     />
   </div>
 );

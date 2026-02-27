@@ -1,1 +1,44 @@
+/* frontend/src/index.css */
+/* 1. Import Premium Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+/* 2. Import Tailwind */
 @import "tailwindcss";
+
+/* 3. Tailwind v4 Theme Configuration */
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+}
+
+/* 4. Global Base Styles */
+@layer base {
+  body {
+    /* Soft, professional off-white background */
+    background-color: #f8fafc; /* slate-50 */
+    color: #0f172a; /* slate-900 */
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  
+  ::selection {
+    background-color: #bfdbfe; /* blue-200 */
+    color: #1e3a8a; /* blue-900 */
+  }
+}
+
+/* 5. Clean, subtle scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1; /* slate-300 */
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8; /* slate-400 */
+}

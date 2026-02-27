@@ -3,26 +3,31 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import Sidebar from "../components/layout/Sidebar";
 import Header from "../components/layout/Header";
-import { Loader2 } from "lucide-react";
+import { Loader2, Folder, FolderOpen, FileText, AlertTriangle } from "lucide-react";
 
 const TrashFolderNode = ({ folder, refreshTrash, setConfirmDelete }) => {
   const { api } = useAuth();
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="ml-4 border-l border-slate-700 pl-3 mt-2">
-      <div className="flex justify-between items-center">
+    <div className="ml-4 border-l-2 border-slate-200 pl-4 mt-3">
+      <div className="flex justify-between items-center group">
         <div
-          className="cursor-pointer font-bold text-indigo-400"
+          className="flex items-center gap-2 cursor-pointer font-semibold text-slate-800 hover:text-blue-600 transition-colors"
           onClick={() => setOpen(!open)}
         >
-          {open ? "📂" : "📁"} {folder.name}
+          {open ? (
+            <FolderOpen size={18} className="text-blue-500" />
+          ) : (
+            <Folder size={18} className="text-blue-500" />
+          )}
+          {folder.name}
         </div>
 
         {folder.isRoot && (
-          <div className="flex gap-2 text-xs">
+          <div className="flex gap-3 text-xs opacity-0 group-hover:opacity-100 transition-opacity">
             <button
-              className="text-emerald-400 hover:text-emerald-300"
+              className="px-3 py-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800 rounded-lg font-semibold transition"
               onClick={async () => {
                 await api.patch(`/trash/folder/${folder._id}/restore`);
                 refreshTrash();
@@ -32,7 +37,7 @@ const TrashFolderNode = ({ folder, refreshTrash, setConfirmDelete }) => {
             </button>
 
             <button
-              className="text-red-400 hover:text-red-300"
+              className="px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-700 rounded-lg font-semibold transition"
               onClick={() => {
                 setConfirmDelete({
                   type: "folder",
@@ -48,15 +53,16 @@ const TrashFolderNode = ({ folder, refreshTrash, setConfirmDelete }) => {
       </div>
 
       {open && (
-        <div className="ml-4">
+        <div className="ml-2 mt-3 space-y-2">
           {/* Files inside this folder */}
           {folder.files?.map(file => (
             <div
               key={file._id}
-              className="flex justify-between items-center bg-slate-900 p-2 rounded mb-1 text-sm"
+              className="flex justify-between items-center bg-white border border-slate-200 shadow-sm p-3 rounded-xl text-sm hover:border-blue-200 transition-colors"
             >
-              <div className="flex items-center gap-2 text-slate-300">
-                📄 {file.originalName}
+              <div className="flex items-center gap-3 text-slate-700 font-medium">
+                <FileText size={16} className="text-slate-400" /> 
+                {file.originalName}
               </div>
             </div>
           ))}
@@ -81,7 +87,6 @@ export default function Trash() {
   const [trash, setTrash] = useState({ folders: [], files: [] });
   const [confirmDelete, setConfirmDelete] = useState(null);
   
-  // ✅ ADDED: State to track if deletion is currently in progress
   const [isDeleting, setIsDeleting] = useState(false);
 
   const refreshTrash = async () => {
@@ -97,7 +102,6 @@ export default function Trash() {
     refreshTrash();
   }, []);
 
-  // ✅ ADDED: Extracted delete logic to handle loading state securely
   const handlePermanentDelete = async () => {
     if (!confirmDelete) return;
     
@@ -111,113 +115,133 @@ export default function Trash() {
       }
       
       await refreshTrash();
-      setConfirmDelete(null); // Close modal on success
+      setConfirmDelete(null); 
     } catch (err) {
       console.error("Failed to permanently delete:", err);
       alert("Error deleting item. Please try again.");
     } finally {
-      setIsDeleting(false); // Stop loading regardless of success/fail
+      setIsDeleting(false); 
     }
   };
 
   return (
-    <div className="flex h-screen bg-[#020617] text-slate-200 overflow-hidden">
+    <div className="flex h-screen bg-slate-50 text-slate-900 overflow-hidden">
       <Sidebar />
       <main className="flex-1 flex flex-col min-w-0 relative">
         <Header />
 
-        <div className="p-6 overflow-y-auto">
-          <h2 className="text-xl font-bold mb-4">Trash</h2>
+        <div className="p-6 lg:p-10 overflow-y-auto custom-scrollbar">
+          <div className="max-w-4xl mx-auto w-full">
+            <h2 className="text-2xl font-bold text-slate-900 mb-8 tracking-tight">Trash</h2>
 
-          <h3 className="text-sm text-slate-400 mb-2">Folders</h3>
-          {trash.folders.length === 0 && (
-            <p className="text-slate-600 text-sm mb-6">No folders in trash</p>
-          )}
-
-          {trash.folders?.map(folder => (
-            <TrashFolderNode
-              key={folder._id}
-              folder={folder}
-              refreshTrash={refreshTrash}
-              setConfirmDelete={setConfirmDelete}
-            />
-          ))}
-
-          <h3 className="text-sm text-slate-400 mt-6 mb-2">Loose Files</h3>
-          {trash.files.length === 0 && (
-            <p className="text-slate-600 text-sm">No files in trash</p>
-          )}
-
-          {trash.files?.map(file => (
-            <div
-              key={file._id}
-              className="flex justify-between items-center bg-slate-900 p-2 rounded mb-2 text-sm"
-            >
-              <div className="flex items-center gap-2 text-slate-300">
-                📄 {file.originalName}
-              </div>
+            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 lg:p-8">
               
-              <div className="flex gap-2 text-xs">
-                <button
-                  className="text-emerald-400 hover:text-emerald-300 transition"
-                  onClick={async () => {
-                    await api.patch(`/trash/file/${file._id}/restore`);
-                    refreshTrash();
-                  }}
-                >
-                  Restore
-                </button>
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Folders</h3>
+              {trash.folders.length === 0 && (
+                <p className="text-slate-500 font-medium text-sm mb-8 bg-slate-50 p-4 rounded-xl border border-dashed border-slate-200">
+                  No folders in trash
+                </p>
+              )}
 
-                <button
-                  className="text-red-400 hover:text-red-300 transition"
-                  onClick={() => {
-                    setConfirmDelete({
-                      type: "file",
-                      id: file._id,
-                      name: file.originalName
-                    });
-                  }}
-                >
-                  Delete Forever
-                </button>
+              <div className="mb-10">
+                {trash.folders?.map(folder => (
+                  <TrashFolderNode
+                    key={folder._id}
+                    folder={folder}
+                    refreshTrash={refreshTrash}
+                    setConfirmDelete={setConfirmDelete}
+                  />
+                ))}
+              </div>
+
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Loose Files</h3>
+              {trash.files.length === 0 && (
+                <p className="text-slate-500 font-medium text-sm bg-slate-50 p-4 rounded-xl border border-dashed border-slate-200">
+                  No loose files in trash
+                </p>
+              )}
+
+              <div className="space-y-3">
+                {trash.files?.map(file => (
+                  <div
+                    key={file._id}
+                    className="flex justify-between items-center bg-white border border-slate-200 p-4 rounded-xl text-sm shadow-sm hover:border-blue-200 transition-colors group"
+                  >
+                    <div className="flex items-center gap-3 text-slate-800 font-semibold">
+                      <FileText size={18} className="text-slate-400" /> 
+                      {file.originalName}
+                    </div>
+                    
+                    <div className="flex gap-2 text-xs opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        className="px-4 py-2 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800 rounded-lg font-semibold transition shadow-sm"
+                        onClick={async () => {
+                          await api.patch(`/trash/file/${file._id}/restore`);
+                          refreshTrash();
+                        }}
+                      >
+                        Restore
+                      </button>
+
+                      <button
+                        className="px-4 py-2 bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-700 rounded-lg font-semibold transition shadow-sm"
+                        onClick={() => {
+                          setConfirmDelete({
+                            type: "file",
+                            id: file._id,
+                            name: file.originalName
+                          });
+                        }}
+                      >
+                        Delete Forever
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
-          ))}
+          </div>
         </div>
       </main>
 
-      {/* MODAL */}
+      {/* Crisp White Modal */}
       {confirmDelete && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-slate-900 rounded-xl p-6 w-96 border border-slate-700 shadow-2xl">
-            <h3 className="text-red-400 font-bold text-lg mb-2">
-              Permanently delete {confirmDelete.type}?
-            </h3>
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl p-8 w-full max-w-md shadow-xl border border-slate-100">
+            <div className="flex items-center gap-4 mb-4">
+              <div className="w-12 h-12 rounded-2xl bg-red-50 flex items-center justify-center text-red-600 border border-red-100 shadow-sm">
+                <AlertTriangle size={24} />
+              </div>
+              <h3 className="text-slate-900 font-bold text-xl tracking-tight">
+                Permanently delete {confirmDelete.type}?
+              </h3>
+            </div>
 
-            <p className="text-sm text-slate-400 mb-6 leading-relaxed">
-              <strong className="text-white">{confirmDelete.name}</strong>
-              <br />
-              This action <span className="text-red-400">cannot be undone</span>.
-            </p>
+            <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl mb-8">
+              <p className="text-sm font-semibold text-slate-900 truncate mb-1">
+                {confirmDelete.name}
+              </p>
+              <p className="text-xs font-medium text-slate-500">
+                This action <span className="text-red-600 font-bold">cannot be undone</span>.
+              </p>
+            </div>
 
             <div className="flex justify-end gap-3">
-              {/* ✅ Cancel Button disabled during load */}
               <button
                 onClick={() => setConfirmDelete(null)}
                 disabled={isDeleting}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm text-slate-300 disabled:opacity-50 transition"
+                className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 rounded-xl text-sm font-semibold text-slate-700 disabled:opacity-50 transition shadow-sm"
               >
                 Cancel
               </button>
 
-              {/* ✅ Delete Button uses handlePermanentDelete and shows Loader */}
               <button
                 onClick={handlePermanentDelete}
                 disabled={isDeleting}
-                className={`px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 transition-all ${
+                className={`px-6 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 transition-all shadow-sm ${
                   isDeleting 
-                    ? "bg-red-500/20 text-red-400 border border-red-500/30 cursor-not-allowed" 
-                    : "bg-red-600 text-white hover:bg-red-500 hover:shadow-[0_0_15px_rgba(220,38,38,0.4)]"
+                    ? "bg-red-100 text-red-400 border border-red-200 cursor-not-allowed" 
+                    : "bg-red-600 text-white hover:bg-red-700 shadow-red-600/20"
                 }`}
               >
                 {isDeleting ? (

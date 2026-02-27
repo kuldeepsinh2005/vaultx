@@ -1,3 +1,4 @@
+// frontend/src/components/layout/Sidebar.jsx
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
@@ -9,7 +10,7 @@ import {
   Trash,
   CreditCard,
   Users,
-  Settings // ✅ IMPORTED NEW SETTINGS ICON
+  Settings
 } from "lucide-react";
 import { Logo } from "./Logo";
 
@@ -17,37 +18,40 @@ const Sidebar = () => {
   const { user, logout } = useAuth();
   const location = useLocation();
 
-  // ✅ ADDED "Account Settings" to the navItems array
   const navItems = [
     { name: "Dashboard", path: "/dashboard", icon: LayoutDashboard },
     { name: "My Vault", path: "/files", icon: Database },
     { name: "Shared with me", path: "/shared", icon: Users }, 
     { name: "Billing & Usage", path: "/billing", icon: CreditCard }, 
-    { name: "Account Settings", path: "/account", icon: Settings }, // ✅ NEW ITEM
+    { name: "Account Settings", path: "/account", icon: Settings }, 
     { name: "Trash", path: "/trash", icon: Trash },
   ];
 
   return (
-    <aside className="w-20 lg:w-64 bg-slate-950/50 backdrop-blur-xl border-r border-slate-800/50 flex flex-col items-center lg:items-start transition-all z-50">
-      <div className="p-8">
+    // Clean white background with a crisp right border and subtle shadow
+    <aside className="w-20 lg:w-64 bg-white border-r border-slate-200 flex flex-col items-center lg:items-start transition-all z-50 shadow-[4px_0_24px_rgba(0,0,0,0.02)]">
+      <div className="p-8 w-full flex justify-center lg:justify-start">
         <Logo size="md" />
       </div>
       
-      <nav className="flex-1 px-4 space-y-2 w-full">
+      <nav className="flex-1 px-4 space-y-1.5 w-full">
         {navItems.map((item) => {
           const isActive = location.pathname === item.path;
           return (
             <Link
               key={item.path}
               to={item.path}
-              className={`flex items-center justify-center lg:justify-start gap-3 px-4 py-3 rounded-2xl transition-all duration-200 group ${
+              className={`flex items-center justify-center lg:justify-start gap-3 px-4 py-3 rounded-xl transition-all duration-200 group ${
                 isActive 
-                  ? "bg-indigo-600/10 text-indigo-400 border border-indigo-600/20 shadow-[0_0_20px_-5px_rgba(79,70,229,0.2)]" 
-                  : "text-slate-500 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent"
+                  ? "bg-blue-50 text-blue-700 font-semibold" 
+                  : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-medium"
               }`}
             >
-              <item.icon size={22} className={isActive ? "text-indigo-400" : "group-hover:scale-110 transition-transform"} />
-              <span className={`hidden lg:block font-bold tracking-tight ${isActive ? "opacity-100" : "opacity-70 group-hover:opacity-100"}`}>
+              <item.icon 
+                size={20} 
+                className={isActive ? "text-blue-600" : "text-slate-400 group-hover:text-slate-600 transition-colors"} 
+              />
+              <span className={`hidden lg:block tracking-tight ${isActive ? "opacity-100" : "opacity-90"}`}>
                 {item.name}
               </span>
             </Link>
@@ -56,23 +60,29 @@ const Sidebar = () => {
       </nav>
 
       {/* User & Logout Section */}
-      <div className="p-4 w-full border-t border-slate-800/50 space-y-2">
-        <div className="hidden lg:flex items-center gap-3 px-4 py-3 mb-2 bg-slate-900/30 rounded-xl border border-slate-800/50">
-          <div className="w-8 h-8 rounded-lg bg-indigo-500/20 flex items-center justify-center text-indigo-400">
-            <User size={16} />
+      <div className="p-4 w-full border-t border-slate-200 space-y-1">
+        {/* Professional User Card */}
+        <div className="hidden lg:flex items-center gap-3 px-4 py-3 mb-1 bg-slate-50 rounded-xl border border-slate-100">
+          <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center text-blue-600 shrink-0">
+            <User size={16} strokeWidth={2.5} />
           </div>
           <div className="overflow-hidden">
-            <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest leading-none mb-1">Operator</p>
-            <p className="text-sm font-bold text-white truncate">{user?.username || "Admin"}</p>
+            <p className="text-[10px] font-bold uppercase text-slate-400 tracking-wider leading-none mb-1">
+              Workspace
+            </p>
+            <p className="text-sm font-semibold text-slate-900 truncate">
+              {user?.username || "Admin"}
+            </p>
           </div>
         </div>
 
+        {/* Clean Logout Button */}
         <button 
           onClick={logout}
-          className="flex items-center justify-center lg:justify-start gap-3 px-4 py-3 w-full text-slate-500 hover:text-red-400 transition-all font-black text-[10px] uppercase tracking-[0.2em]"
+          className="flex items-center justify-center lg:justify-start gap-3 px-4 py-3 w-full text-slate-600 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all font-semibold text-sm group"
         >
-          <LogOut size={18} /> 
-          <span className="hidden lg:block">Terminate Session</span>
+          <LogOut size={18} className="text-slate-400 group-hover:text-red-500 transition-colors" /> 
+          <span className="hidden lg:block">Sign out</span>
         </button>
       </div>
     </aside>

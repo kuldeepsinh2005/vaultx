@@ -1,4 +1,5 @@
 // frontend/src/pages/Dashboard.jsx
+// frontend/src/pages/Dashboard.jsx
 import { useAuth } from "../context/AuthContext";
 import { generateAESKey, encryptFile, wrapAESKeyWithPublicKey,base64UrlEncode } from "../utils/crypto";
 import { useState } from "react";
@@ -25,7 +26,6 @@ import { runCryptoWorker } from "../utils/workerHelper";
 
 const Dashboard = () => {
   const { api } = useAuth();
-  // const [file, setFile] = useState(null);
   const [fileList, setFileList] = useState([]);
   const fileInputRef = useRef(null);
   const folderInputRef = useRef(null);
@@ -36,15 +36,10 @@ const Dashboard = () => {
 
   const location = useLocation();
 
-  const currentFolder =
-    location.state?.targetFolder || null;
+  const currentFolder = location.state?.targetFolder || null;
+  const currentFolderName = location.state?.targetFolderName || "Root";
 
-  const currentFolderName =
-    location.state?.targetFolderName || "Root";
-
-
-
- const handleUpload = async () => {
+  const handleUpload = async () => {
     if (!fileList.length) return;
 
     setUploading(true);
@@ -193,65 +188,58 @@ const Dashboard = () => {
 
   
   return (
-    /* Changed min-h-screen to h-screen and added overflow-hidden to match MyFiles */
-    <div className="flex h-screen bg-[#020617] text-slate-200 overflow-hidden">
+    // Clean, crisp enterprise light mode background
+    <div className="flex h-screen bg-slate-50 text-slate-900 overflow-hidden">
       <Sidebar />
       
       {/* MAIN CONTENT */}
       <main className="flex-1 flex flex-col min-w-0 relative overflow-hidden">
-        {/* Subtle Background Glow */}
-        <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-indigo-500/5 blur-[120px] pointer-events-none" />
+        {/* Subtle, professional background depth */}
+        <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-blue-100/40 blur-[100px] pointer-events-none" />
 
         <Header />
         
-        {/* Dashboard Body - Added overflow-y-auto and flex-1 */}
         <div className="flex-1 overflow-y-auto p-6 lg:p-10 z-10 custom-scrollbar">
           <div className="max-w-4xl mx-auto w-full space-y-6">
   
             {currentFolder && (
-              <div className="mb-4 px-4 py-2 bg-indigo-500/10 border border-indigo-500/30 rounded-xl text-indigo-300 font-bold text-sm">
-                Uploading into folder: <span className="text-white">{currentFolderName}</span>
+              <div className="mb-4 px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl text-blue-800 font-medium text-sm flex items-center shadow-sm">
+                Uploading into folder: <span className="font-bold ml-1.5 text-blue-900">{currentFolderName}</span>
               </div>
             )}
 
-
-
-
-            {/* Upload Section - Tightened padding (p-8 instead of p-10) */}
-            <Card className="p-8 border-indigo-500/10 shadow-indigo-500/5">
+            {/* Upload Section Card */}
+            <Card className="p-8 border-slate-200 shadow-sm">
               <div className="flex items-center gap-4 mb-8">
-                <div className="p-3 bg-indigo-600/10 text-indigo-500 rounded-xl border border-indigo-500/20 shadow-inner">
+                <div className="p-3 bg-blue-50 text-blue-600 rounded-xl border border-blue-100 shadow-sm">
                   <Lock size={24} />
                 </div>
                 <div>
-                  <h3 className="text-xl font-bold text-white tracking-tight">Secure Local Encryption</h3>
-                  <p className="text-slate-500 text-sm">AES-256-GCM Protection</p>
+                  <h3 className="text-xl font-bold text-slate-900 tracking-tight">Secure Encryption</h3>
+                  {/* <p className="text-slate-500 text-sm font-medium">AES-256-GCM Protection</p> */}
                 </div>
               </div>
 
-            {/* Enhanced File Dropzone - Added mb-8 for space below */}
+            {/* Enhanced File Dropzone */}
             <div className="relative group mb-8">
 
               <div className="flex gap-3 mb-6">
                 <label
                   htmlFor="file-upload"
-                  className="px-4 py-2 bg-slate-900 border border-slate-800 rounded-xl cursor-pointer hover:border-indigo-500 transition"
+                  className="px-4 py-2 bg-white border border-slate-300 rounded-xl cursor-pointer hover:border-blue-500 hover:text-blue-700 hover:bg-slate-50 transition font-semibold text-sm text-slate-700 shadow-sm"
                 >
                   Upload Files
                 </label>
 
                 <label
                   htmlFor="folder-upload"
-                  className="px-4 py-2 bg-slate-900 border border-slate-800 rounded-xl cursor-pointer hover:border-indigo-500 transition"
+                  className="px-4 py-2 bg-white border border-slate-300 rounded-xl cursor-pointer hover:border-blue-500 hover:text-blue-700 hover:bg-slate-50 transition font-semibold text-sm text-slate-700 shadow-sm"
                 >
                   Upload Folder
                 </label>
               </div>
 
-
-
-
-              {/* Upload Files */}
+              {/* Upload Files Input */}
               <input
                 type="file"
                 multiple
@@ -261,7 +249,7 @@ const Dashboard = () => {
                 id="file-upload"
               />
 
-              {/* Upload Folder */}
+              {/* Upload Folder Input */}
               <input
                 type="file"
                 multiple
@@ -274,78 +262,79 @@ const Dashboard = () => {
               />
 
               <div
-                className={`border-2 border-dashed rounded-[2rem] p-10 text-center transition-all duration-300 
+                className={`border-2 border-dashed rounded-2xl p-10 text-center transition-all duration-300 
                 ${fileList.length 
-                  ? 'border-indigo-500 bg-indigo-500/5 shadow-[0_0_40px_-15px_rgba(79,70,229,0.3)]' 
-                  : 'border-slate-800 group-hover:border-slate-700 bg-slate-950/50'}`}
+                  ? 'border-blue-500 bg-blue-50/50 shadow-sm' 
+                  : 'border-slate-300 group-hover:border-blue-400 bg-slate-50/50'}`}
               >
 
-                <div className={`mx-auto mb-4 w-14 h-14 rounded-2xl flex items-center justify-center transition-colors ${fileList.length ? 'bg-indigo-500 text-white' : 'bg-slate-900 text-slate-600 group-hover:text-slate-400'}`}>
+                <div className={`mx-auto mb-4 w-14 h-14 rounded-xl flex items-center justify-center transition-colors shadow-sm ${fileList.length ? 'bg-blue-600 text-white shadow-blue-600/20' : 'bg-white border border-slate-200 text-slate-400 group-hover:text-blue-500 group-hover:border-blue-200'}`}>
                   <CloudUpload size={28} />
                 </div>
                 {fileList.length ? (
                     <div className="space-y-1">
-                      <p className="text-white font-bold text-base truncate px-4">
+                      <p className="text-slate-900 font-bold text-base truncate px-4">
                         {fileList.length === 1
                           ? fileList[0].name
                           : `${fileList.length} items selected`}
                       </p>
-                      <p className="text-indigo-400/60 text-xs uppercase tracking-widest font-bold">
+                      <p className="text-blue-600 text-sm font-medium">
                         Ready to Seal
                       </p>
                     </div>
                   ) : (
-                  <div className="space-y-1">
-                    <p className="text-slate-300 font-bold text-base">Select files or folders to secure</p>
-                    <p className="text-slate-600 text-[10px] uppercase tracking-[0.2em] font-bold">Zero-Knowledge Protocol</p>
+                  <div className="space-y-1.5">
+                    <p className="text-slate-700 font-semibold text-base">Select files or folders to secure</p>
+                    <p className="text-slate-500 text-xs font-medium">Zero-Knowledge Protocol</p>
                   </div>
                 )}
               </div>
             </div>
 
-            {/* Status Notifications - Increased mt-8 and py-5 for a larger 'alert' box feel */}
+            {/* Status Notifications */}
             {status.text && (
-              <div className={`mt-8 mb-8 p-5 rounded-2xl flex items-center gap-4 text-sm font-bold border animate-in slide-in-from-bottom-2 ${
-                status.type === 'success' ? 'bg-emerald-500/5 text-emerald-400 border-emerald-500/20' : 
-                status.type === 'error' ? 'bg-red-500/5 text-red-400 border-red-500/20' : 
-                'bg-indigo-500/5 text-indigo-400 border-indigo-500/20'
+              <div className={`mt-8 mb-8 p-4 rounded-xl flex items-center gap-3 text-sm font-semibold border animate-in slide-in-from-bottom-2 shadow-sm ${
+                status.type === 'success' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 
+                status.type === 'error' ? 'bg-red-50 text-red-700 border-red-200' : 
+                'bg-blue-50 text-blue-700 border-blue-200'
               }`}>
                 <div className="flex-shrink-0">
-                  {status.type === 'success' ? <CheckCircle2 size={18} /> : 
-                  status.type === 'error' ? <ShieldAlert size={18} /> : 
-                  <Loader2 size={18} className="animate-spin" />}
+                  {status.type === 'success' ? <CheckCircle2 size={18} className="text-emerald-500" /> : 
+                  status.type === 'error' ? <ShieldAlert size={18} className="text-red-500" /> : 
+                  <Loader2 size={18} className="animate-spin text-blue-500" />}
                 </div>
                 {status.text}
               </div>
             )}
             
-            {/* Existing Status Notifications */}
-           {/* Dynamic Progress Bar UI */}
+            {/* Dynamic Progress Bar UI */}
             {uploading && (
               <div className="mb-6 animate-in fade-in duration-300">
-                <div className="flex justify-between text-xs uppercase font-bold tracking-widest text-slate-400 mb-2">
-                  <span>{status.text}</span>
-                  {progress > 0 && progress < 100 && <span className="text-indigo-400">{progress}%</span>}
-                  {progress === 100 && <span className="text-emerald-400 animate-pulse">Wait...</span>}
+                <div className="flex justify-between text-xs font-semibold text-slate-500 mb-2.5">
+                  <span className="text-slate-700">{status.text}</span>
+                  <div className="flex items-center gap-2">
+                    {progress > 0 && progress < 100 && <span className="text-blue-600 font-bold">{progress}%</span>}
+                    {progress === 100 && <span className="text-emerald-600 font-bold animate-pulse">Wait...</span>}
+                  </div>
                 </div>
                 
-                <div className="w-full bg-slate-900/50 border border-slate-800 rounded-full h-3 overflow-hidden shadow-inner relative">
+                <div className="w-full bg-slate-100 border border-slate-200 rounded-full h-3 overflow-hidden shadow-inner relative">
                   
                   {/* Phase 1: Encrypting (Pulsing background when progress is 0) */}
                   {progress === 0 && (
-                    <div className="absolute inset-0 bg-indigo-500/30 animate-pulse" />
+                    <div className="absolute inset-0 bg-blue-200 animate-pulse" />
                   )}
 
                   {/* Phase 2 & 3: Uploading & Finalizing */}
                   {progress > 0 && (
                     <div 
                       className={`h-full transition-all duration-300 ease-out relative ${
-                        progress === 100 ? 'bg-emerald-500' : 'bg-gradient-to-r from-indigo-600 to-indigo-400'
+                        progress === 100 ? 'bg-emerald-500' : 'bg-blue-600'
                       }`}
                       style={{ width: `${progress}%` }}
                     >
                       {/* Shimmer effect inside the bar */}
-                      <div className="absolute top-0 right-0 bottom-0 w-10 bg-white/20 blur-[4px] -translate-x-full animate-[shimmer_2s_infinite]" />
+                      <div className="absolute top-0 right-0 bottom-0 w-10 bg-white/30 blur-[4px] -translate-x-full animate-[shimmer_2s_infinite]" />
                     </div>
                   )}
                 </div>
@@ -353,30 +342,31 @@ const Dashboard = () => {
             )}
 
             {/* Existing Upload Button */}
-            <Button 
-              onClick={handleUpload}
-              disabled={!fileList.length || uploading}  
-              loading={uploading}
-              className={status.text ? "" : "mt-10"} 
-            >
-              {!uploading && <ShieldCheck size={18} />}
-              {/* ✅ UPDATE text to show dynamic processing state */}
-              {uploading ? (progress > 0 ? `Sealing... ${progress}%` : "Encrypting Locally...") : "Seal & Upload to Vault"}
-            </Button>
+            <div className={status.text ? "" : "mt-8"}>
+              <Button 
+                onClick={handleUpload}
+                disabled={!fileList.length || uploading}  
+                loading={uploading}
+                variant="primary"
+              >
+                {!uploading && <ShieldCheck size={18} />}
+                {uploading ? (progress > 0 ? `Sealing... ${progress}%` : "Encrypting Locally...") : "Seal & Upload to Vault"}
+              </Button>
+            </div>
             </Card>
 
-            {/* Quick Navigation Card - Dimensions synchronized */}
-            <Link to="/files" className="p-6 bg-slate-950/50 border border-slate-800 rounded-[2rem] hover:border-indigo-500/50 transition-all flex items-center justify-between group shadow-xl">
+            {/* Quick Navigation Card */}
+            <Link to="/files" className="p-6 bg-white border border-slate-200 rounded-2xl hover:border-blue-300 hover:shadow-md transition-all flex items-center justify-between group shadow-sm mt-6">
               <div className="flex items-center gap-4">
-                <div className="p-3 bg-slate-900 text-slate-400 rounded-xl group-hover:bg-indigo-600 group-hover:text-white transition-all">
+                <div className="p-3 bg-slate-50 border border-slate-200 text-slate-500 rounded-xl group-hover:bg-blue-600 group-hover:text-white group-hover:border-blue-600 transition-all shadow-sm">
                   <Files size={24} />
                 </div>
                 <div>
-                  <span className="block font-bold text-white text-base">Access Vault Assets</span>
-                  <span className="text-slate-500 text-xs">View encrypted payload list</span>
+                  <span className="block font-bold text-slate-900 text-base">Access Vault Assets</span>
+                  <span className="text-slate-500 text-sm font-medium">View encrypted payload list</span>
                 </div>
               </div>
-              <div className="text-slate-700 group-hover:text-indigo-500 group-hover:translate-x-1 transition-all">
+              <div className="text-slate-400 group-hover:text-blue-600 group-hover:translate-x-1 transition-all">
                 <ArrowRight size={20} />
               </div>
             </Link>
@@ -389,7 +379,7 @@ const Dashboard = () => {
 };
 
 const ArrowRight = ({ size, className }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className={className}>
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
     <path d="M5 12h14m-7-7 7 7-7 7"/>
   </svg>
 );
