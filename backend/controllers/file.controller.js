@@ -6,7 +6,8 @@ const mongoose = require("mongoose");
 const StorageUsage = require("../models/StorageUsage.model");
 const crypto = require("crypto");
 const User = require("../models/User.model");
-
+const SharedFile = require("../models/SharedFile.model"); // ✅ ADDED: Missing Import
+const SharedFolder = require("../models/SharedFolder.model"); // ✅ ADDED: For safety
 // backend/controllers/file.controller.js
 
 exports.initiateMultipart = async (req, res) => {
@@ -343,25 +344,26 @@ exports.deleteFile = async (req, res) => {
 
 exports.getPresignedDownloadUrl = async (req, res) => {
   try {
-    // 1. Verify file exists and user owns it
-    const file = await File.findOne({ _id: req.params.id, owner: req.user._id });
+    const userId = req.user._id;
+    const fileId = req.params.id;
+
+    // 1. Check if owner
+    let file = await File.findOne({ _id: fileId, owner: userId, isDeleted: false });
+
+    // 2. If not owner, check if shared with user
     if (!file) {
-      return res.status(404).json({ error: "File not found or unauthorized" });
+      const shareExists = await SharedFile.exists({ file: fileId, sharedWith: userId });
+      if (shareExists) {
+        file = await File.findById(fileId);
+      }
     }
 
-    // 2. Get storage instance and generate URL
-    const storage = getStorageProvider(); // or however you initialize your S3 class
-    
-    // Fallback if testing locally without S3
-    if (typeof storage.getDownloadUrl !== "function") {
-      return res.status(400).json({ error: "Direct download not supported in local mode." });
-    }
+    if (!file) return res.status(404).json({ error: "Access denied or file not found" });
 
+    const storage = getStorageProvider();
     const url = await storage.getDownloadUrl(file.storagePath);
 
-    // 3. Return the ticket to the frontend
     res.json({ success: true, url });
-
   } catch (err) {
     console.error("Presigned URL error:", err);
     res.status(500).json({ error: "Failed to generate secure download link" });

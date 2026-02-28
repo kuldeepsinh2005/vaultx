@@ -293,6 +293,7 @@ exports.getSharedFolderContents = async (req, res) => {
       return {
         _id: file._id, // Add an ID at the root of the record
         file: file,
+        owner: folderOwner,
         wrappedKey: wrappedKey || null,
         isLocked: !wrappedKey 
       };
