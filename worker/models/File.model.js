@@ -63,12 +63,8 @@ const FileSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-FileSchema.index(
-  { deletedAt: 1 },
-  { expireAfterSeconds: 30  } 
-);
+// ✅ REMOVED the expireAfterSeconds option!
+FileSchema.index({ deletedAt: 1 });
 FileSchema.index({ owner: 1, isDeleted: 1 });
 
-
-// 60 * 60 * 24 * 30
 module.exports = mongoose.model("File", FileSchema);

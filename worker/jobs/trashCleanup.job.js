@@ -4,6 +4,8 @@ const cron = require("node-cron");
 const mongoose = require("mongoose");
 const Folder = require("../models/Folder.model");
 const File = require("../models/File.model");
+const SharedFile = require("../models/SharedFile.model");     // ✅ IMPORTED
+const SharedFolder = require("../models/SharedFolder.model"); // ✅ IMPORTED
 const { getStorageProvider } = require("../storage");
 const User = require("../models/User.model");
 const StorageUsage = require("../models/StorageUsage.model");
@@ -11,10 +13,7 @@ const StorageUsage = require("../models/StorageUsage.model");
 const TRASH_TTL_MS  = 10 * 1000; // 10 seconds for testing (Change to 30 days in prod)
 const BATCH_SIZE = 10;
 
-// cron.schedule("*/1 * * * *", async () => {
-  // ✅ Run every 10 seconds during testing!
 cron.schedule("*/10 * * * * *", async () => { 
-  // ... rest of your worker code ...
   if (mongoose.connection.readyState !== 1) {
     console.log("⏳ Mongo not ready, skipping cleanup");
     return;
@@ -64,6 +63,9 @@ cron.schedule("*/10 * * * * *", async () => {
 
         // 4️⃣ Delete DB record
         await File.deleteOne({ _id: file._id });
+        
+        // 5️⃣ WIPE ORPHANED SHARES (✅ FIX)
+        await SharedFile.deleteMany({ file: file._id });
 
       } catch (err) {
         console.error(`[Worker] Cleanup failed for file ${file._id}:`, err.message);
@@ -161,8 +163,14 @@ async function deleteFolderForever(folderId, ownerId) {
 
     // 3. Delete DB records
     await File.deleteMany({ _id: { $in: successfulFileIds } });
+    
+    // 4. WIPE ORPHANED FILE SHARES (✅ FIX)
+    await SharedFile.deleteMany({ file: { $in: successfulFileIds } });
   }
 
-  // 4. Delete folder records
+  // 5. Delete folder records
   await Folder.deleteMany({ _id: { $in: folderIdsToDelete } });
+  
+  // 6. WIPE ORPHANED FOLDER SHARES (✅ FIX)
+  await SharedFolder.deleteMany({ folder: { $in: folderIdsToDelete } });
 }

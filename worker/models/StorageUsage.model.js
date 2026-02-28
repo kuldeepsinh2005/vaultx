@@ -1,3 +1,4 @@
+// backend/models/StorageUsage.model.js
 const mongoose = require("mongoose");
 
 const StorageUsageSchema = new mongoose.Schema(
@@ -33,8 +34,16 @@ const StorageUsageSchema = new mongoose.Schema(
     lastBilledAt: {
       type: Date,
       default: Date.now
+    },
+    isBilled: {
+        type: Boolean,
+        default: false
+    },
+    billingId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Billing',
+        default: null
     }
-
 
   },
   { timestamps: true }
