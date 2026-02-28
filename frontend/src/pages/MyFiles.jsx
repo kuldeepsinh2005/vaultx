@@ -3,18 +3,11 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useKey } from "../context/KeyContext";
+import { useTransfers } from "../context/TransferContext"; // ✅ IMPORT GLOBAL MANAGER
 import { buildFolderTree } from "../utils/buildTree";
-import { 
-  decryptFile,  
-  unwrapAESKeyWithPrivateKey,
-  base64ToUint8Array,
-  base64UrlToUint8Array,
-  universalDecode
-} from "../utils/crypto";
-import { runCryptoWorker } from "../utils/workerHelper";
+
 import { 
   Loader2,
-  Lock,
   AlertCircle,
   Database,
   ArrowRight,
@@ -24,7 +17,6 @@ import {
   Edit2
 } from "lucide-react";
 
-// Reusable UI Components
 import Sidebar from "../components/layout/Sidebar";
 import Header from "../components/layout/Header";
 import SyncKeysModal from "../components/SyncKeysModal";
@@ -32,9 +24,6 @@ import ShareModal from "../components/ShareModal";
 import ManageAccessModal from "../components/ManageAccessModal";
 import RenameModal from "../components/RenameModal";
 import { ChevronRight, ChevronDown } from "lucide-react";
-import axios from "axios";
-import JSZip from "jszip";
-import { saveAs } from "file-saver";
 
 const FolderNode = ({ folder, depth = 0, onSelect }) => {
   const [open, setOpen] = useState(false);
@@ -87,11 +76,14 @@ const formatFileSize = (bytes) => {
 
 const MyFiles = () => {
   const { api } = useAuth();
+  const { privateKey } = useKey();
+  const { startGlobalDownload, startGlobalFolderDownload } = useTransfers(); // ✅ HOOK INTO ENGINE
+  const navigate = useNavigate();
+
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [decryptingId, setDecryptingId] = useState(null);
-  const { privateKey } = useKey();
+  
   const [folders, setFolders] = useState([]);
   const [currentFolder, setCurrentFolder] = useState(null);
   const [folderStack, setFolderStack] = useState([]);
@@ -105,15 +97,10 @@ const MyFiles = () => {
   const [syncTarget, setSyncTarget] = useState(null);
   const [movingItem, setMovingItem] = useState(null);
   const [folderTree, setFolderTree] = useState([]);
-
-  const [downloadProgress, setDownloadProgress] = useState(0);
-  const [downloadPhase, setDownloadPhase] = useState(""); 
+  const [renamingItem, setRenamingItem] = useState(null);
 
   const isEmpty = !error && folders.length === 0 && files.length === 0;
   const hasContent = !error && (folders.length > 0 || files.length > 0);
-  const [renamingItem, setRenamingItem] = useState(null);
-
-  const navigate = useNavigate();
 
   const refreshFolderTree = async () => {
       const res = await api.get(`/folders/tree?t=${Date.now()}`);
@@ -139,13 +126,8 @@ const MyFiles = () => {
       setMovingItem(null);
       return;
     }
-
     setMovingItem(null); 
-    
-    await api.patch(`/files/${fileId}/move`, {
-      folderId,
-    });
-    
+    await api.patch(`/files/${fileId}/move`, { folderId });
     await refreshAll();
   };
 
@@ -153,14 +135,9 @@ const MyFiles = () => {
     const fetchData = async () => {
       try {
         const [filesRes, foldersRes] = await Promise.all([
-          api.get("/files/my", {
-            params: { folder: currentFolder },
-          }),
-          api.get("/folders", {
-            params: { parent: currentFolder },
-          }),
+          api.get("/files/my", { params: { folder: currentFolder } }),
+          api.get("/folders", { params: { parent: currentFolder } }),
         ]);
-
         setFiles(filesRes.data.files || []);
         setFolders(foldersRes.data.folders || []);
       } catch {
@@ -169,75 +146,24 @@ const MyFiles = () => {
         setLoading(false);
       }
     };
-
     fetchData();
   }, [api, currentFolder]);
 
-  const handleDownload = async (file) => {
-    try {
-      if (!privateKey) {
-        navigate("/unlock");
-        return;
-      }
-
-      setDecryptingId(file._id);
-      setDownloadProgress(0);
-      setDownloadPhase("Downloading");
-
-      const ticketRes = await api.get(`/files/presigned-download/${file._id}`);
-      const directS3Url = ticketRes.data.url;
-
-      const res = await axios.get(directS3Url, {
-        responseType: "blob",
-        onDownloadProgress: (progressEvent) => {
-          if (progressEvent.total) {
-            const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-            setDownloadProgress(percentCompleted);
-          } else {
-            const mbLoaded = (progressEvent.loaded / (1024 * 1024)).toFixed(1);
-            setDownloadProgress(`${mbLoaded} MB`);
-          }
-        },
-      });
-      
-      setDownloadPhase("Decrypting");
-
-      const aesKey = await unwrapAESKeyWithPrivateKey(
-        file.wrappedKey,
-        privateKey
-      );
-
-      const rawAesKey = await crypto.subtle.exportKey("raw", aesKey);
-
-      const originalIv = universalDecode(file.iv);
-      const cleanIv = new Uint8Array(originalIv);
-
-      const { decryptedBuffer } = await runCryptoWorker("DECRYPT", {
-        file: res.data,
-        keyData: rawAesKey, 
-        iv: cleanIv
-      });
-
-      const blob = new Blob([decryptedBuffer], { type: file.mimeType });
-      const url = URL.createObjectURL(blob);
-
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = file.originalName; 
-      document.body.appendChild(a); 
-      a.click();
-      document.body.removeChild(a);
-
-      URL.revokeObjectURL(url);
-      
-    } catch (err) {
-      console.error("🚨 DOWNLOAD CRASHED:", err);
-      alert(`Download failed: ${err.message || err.name || "Unknown error (check console)"}`);
-    } finally {
-      setDecryptingId(null);
-      setDownloadProgress(0);
-      setDownloadPhase("");
+  // ✅ SIMPLIFIED DOWNLOAD HANDLERS
+  const handleDownload = (file) => {
+    if (!privateKey) {
+      navigate("/unlock");
+      return;
     }
+    startGlobalDownload(file, privateKey);
+  };
+
+  const handleFolderDownload = (folderId, folderName) => {
+    if (!privateKey) {
+      navigate("/unlock");
+      return;
+    }
+    startGlobalFolderDownload(folderId, folderName, privateKey);
   };
 
   const confirmDelete = async () => {
@@ -247,10 +173,8 @@ const MyFiles = () => {
       } else {
         await api.patch(`/folders/${deletingItem.data._id}/delete`);
       }
-
       setDeletingItem(null); 
       await refreshAll(); 
-      
     } catch (err) {
       alert("Delete failed");
     }
@@ -269,72 +193,12 @@ const MyFiles = () => {
     }
   };
 
-  const handleFolderDownload = async (folderId, folderName) => {
-    try {
-      if (!privateKey) { navigate("/unlock"); return; }
-      setDecryptingId(folderId);
-
-      const metaRes = await api.get(`/folders/${folderId}/all-contents`);
-      const { files } = metaRes.data;
-      const zip = new JSZip();
-
-      setDownloadPhase("Fetching");
-
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        try {
-          setDownloadPhase(`Fetching ${i + 1}/${files.length}`);
-          setDownloadProgress(Math.round((i / files.length) * 100));
-
-          const ticketRes = await api.get(`/files/presigned-download/${file._id}`);
-          const directS3Url = ticketRes.data.url;
-
-          const res = await axios.get(directS3Url, { 
-            responseType: "blob" 
-          });
-          
-          const aesKey = await unwrapAESKeyWithPrivateKey(file.wrappedKey, privateKey);
-          const rawAesKey = await crypto.subtle.exportKey("raw", aesKey);
-          
-          const originalIv = universalDecode(file.iv);
-          const cleanIv = new Uint8Array(originalIv);
-          
-          const { decryptedBuffer } = await runCryptoWorker("DECRYPT", {
-            file: res.data,
-            keyData: rawAesKey, 
-            iv: cleanIv
-          });
-          
-          const cleanPath = file.zipPath.startsWith('/') ? file.zipPath.slice(1) : file.zipPath;
-          zip.file(cleanPath, decryptedBuffer);
-
-        } catch (fileErr) {
-          console.error(`🚨 FAILED TO PROCESS ${file.originalName}:`, fileErr);
-        }
-      }
-
-      setDownloadPhase("Zipping");
-      setDownloadProgress(100);
-
-      const content = await zip.generateAsync({ type: "blob" });
-      saveAs(content, `${folderName}.zip`);
-
-    } catch (err) {
-      console.error("Folder download failed:", err);
-      alert("Could not process folder download.");
-    } finally {
-      setDecryptingId(null);
-    }
-  };
-
   const refreshAll = async () => {
     await refreshFolderTree();
-
     const [filesRes, foldersRes] = await Promise.all([
       api.get(`/files/my?folder=${currentFolder || ''}&t=${Date.now()}`),
       api.get(`/folders?parent=${currentFolder || ''}&t=${Date.now()}`),
     ]);
-
     setFiles(filesRes.data.files || []);
     setFolders(foldersRes.data.folders || []);
   };
@@ -472,6 +336,7 @@ const MyFiles = () => {
                     
                     <thead className="sticky top-0 bg-slate-50 z-10">
                       <tr className="border-b border-slate-200">
+                        {/* ✅ REMOVED SECURITY STATE COLUMN HEADER */}
                         <th className="px-8 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500">Asset Identity</th>
                         <th className="px-8 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500 hidden sm:table-cell">Payload Size</th>
                         <th className="px-8 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500 text-right">Command</th>
@@ -546,6 +411,7 @@ const MyFiles = () => {
                             >
                               Share
                             </button>
+                            {/* ✅ CLEANED UP BUTTON */}
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -553,7 +419,7 @@ const MyFiles = () => {
                               }}
                               className="text-slate-400 hover:text-emerald-600 text-xs font-semibold transition"
                             >
-                              {decryptingId === folder._id ? downloadPhase : "Download"}
+                              Download
                             </button>
                             <button 
                               onClick={(e) => {
@@ -608,6 +474,8 @@ const MyFiles = () => {
                             {formatFileSize(file.size)}
                           </td>
                           
+                          {/* ✅ REMOVED SECURITY STATE COLUMN CELL COMPLETELY */}
+
                           <td className="px-8 py-5 text-right">
                             <div className="flex items-center justify-end gap-2">
                               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity mr-4">
@@ -665,36 +533,14 @@ const MyFiles = () => {
                                 </button>
                               </div>
 
+                              {/* ✅ SIMPLIFIED DOWNLOAD BUTTON */}
                               <button 
                                 onClick={() => handleDownload(file)}
-                                disabled={decryptingId === file._id}
-                                className={`relative overflow-hidden inline-flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all font-bold text-[10px] uppercase tracking-widest border shadow-sm
-                                ${decryptingId === file._id 
-                                  ? 'bg-blue-50 border-blue-200 text-blue-700' 
-                                  : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:text-blue-700 hover:border-blue-300'}`}
+                                className="relative overflow-hidden inline-flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all font-bold text-[10px] uppercase tracking-widest border shadow-sm bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:text-blue-700 hover:border-blue-300"
                               >
-                                {decryptingId === file._id && downloadPhase === "Downloading" && (
-                                  <div 
-                                    className="absolute left-0 top-0 bottom-0 bg-blue-500/20 transition-all duration-200 ease-out"
-                                    style={{ width: `${downloadProgress}%` }}
-                                  />
-                                )}
-                                {decryptingId === file._id && downloadPhase === "Decrypting" && (
-                                  <div className="absolute inset-0 bg-blue-500/20 animate-pulse" />
-                                )}
-                                
                                 <div className="relative z-10 flex items-center gap-2">
-                                  {decryptingId === file._id ? (
-                                    <Loader2 className="w-[14px] h-[14px] animate-spin" />
-                                  ) : (
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-download" aria-hidden="true"><path d="M12 15V3"></path><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="m7 10 5 5 5-5"></path></svg>
-                                  )}
-                                  
-                                  {decryptingId === file._id 
-                                    ? (downloadPhase === "Downloading" 
-                                        ? `FETCHING ${typeof downloadProgress === 'number' ? downloadProgress + '%' : downloadProgress}` 
-                                        : "DECRYPTING...") 
-                                    : "Retrieve"}
+                                   <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-download" aria-hidden="true"><path d="M12 15V3"></path><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="m7 10 5 5 5-5"></path></svg>
+                                   Retrieve
                                 </div>
                               </button>
                             </div>

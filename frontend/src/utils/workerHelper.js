@@ -2,7 +2,6 @@
 
 export const runCryptoWorker = async (action, payload) => {
   return new Promise(async (resolve, reject) => {
-    // Initialize the worker
     const worker = new Worker(new URL("../workers/crypto.worker.js", import.meta.url), {
       type: "module",
     });
@@ -13,35 +12,42 @@ export const runCryptoWorker = async (action, payload) => {
       } else {
         reject(new Error(e.data.error));
       }
-      worker.terminate(); // Kill worker to free up memory immediately
+      worker.terminate(); // Free memory immediately
     };
 
     worker.onerror = (err) => {
+      console.error("Worker Error:", err);
       reject(err);
       worker.terminate();
     };
 
-    // Convert Blob/File to ArrayBuffer before sending
-    // Convert Blob/File to ArrayBuffer before sending
-    let buffer;
-    if (payload.file instanceof Blob || payload.file instanceof File) {
-      buffer = await payload.file.arrayBuffer();
-    } else {
-      buffer = payload.file; 
-    }
-
     try {
+      let buffer;
+      // Support the property name from both upload and download flows
+      const inputData = payload.file || payload.fileData;
+
+      // Extract ArrayBuffer regardless of what is passed in
+      if (inputData instanceof Blob || inputData instanceof File) {
+        buffer = await inputData.arrayBuffer();
+      } else if (inputData instanceof ArrayBuffer) {
+        buffer = inputData;
+      } else if (inputData instanceof Uint8Array) {
+        buffer = inputData.buffer;
+      } else {
+        throw new Error("Invalid file data type passed to worker");
+      }
+
       if (action === "ENCRYPT") {
+        // [buffer] tells the browser to MOVE the memory, not copy it (Zero-Copy)
         worker.postMessage({ action, fileData: buffer }, [buffer]);
       } else if (action === "DECRYPT") {
         worker.postMessage(
-            { action, fileData: buffer, keyData: payload.keyData, iv: payload.iv },
-            [buffer] // <--- Only transfer the file buffer
+          { action, fileData: buffer, keyData: payload.keyData, iv: payload.iv },
+          [buffer] 
         );
       }
     } catch (postError) {
-      // ✅ FIX: Catch immediate cloning errors
-      console.error("🚨 Worker PostMessage Failed:", postError);
+      console.error("🚨 Worker Transfer Failed:", postError);
       reject(new Error("Failed to send data to background worker."));
       worker.terminate();
     }
