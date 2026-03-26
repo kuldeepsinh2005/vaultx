@@ -24,3 +24,10 @@ repomix-output.xml
 *.sw?
 *uploads
 vaultx_live.archive
+
+.env
+.env.local
+node_modules/
+dist/
+*.archive
+vaultx-key.pem
