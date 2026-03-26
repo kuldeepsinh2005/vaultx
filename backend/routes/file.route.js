@@ -36,13 +36,13 @@ router.get("/my", verifyJWT, getMyFiles);
 router.get("/download/:id", verifyJWT, enforceBillingClear,downloadFile);
 router.patch("/:id/move", verifyJWT, moveFile);
 router.patch("/:id/delete", verifyJWT, deleteFile); 
-router.get("/presigned-download/:id", verifyJWT, getPresignedDownloadUrl);
-router.post("/upload-ticket", verifyJWT, getUploadTicket);
-router.post("/finalize", verifyJWT, finalizeUpload);
+router.get("/presigned-download/:id", verifyJWT,enforceBillingClear, getPresignedDownloadUrl);
+router.post("/upload-ticket", verifyJWT,enforceBillingClear, getUploadTicket);
+router.post("/finalize", verifyJWT, enforceBillingClear, finalizeUpload);
 // Add these to your routes
-router.post("/multipart/initiate", verifyJWT, initiateMultipart);
-router.post("/multipart/complete", verifyJWT, completeMultipart);
-router.post("/multipart/abort", verifyJWT, abortMultipart);
+router.post("/multipart/initiate", verifyJWT, enforceBillingClear, initiateMultipart);
+router.post("/multipart/complete", verifyJWT, enforceBillingClear, completeMultipart);
+router.post("/multipart/abort", verifyJWT, enforceBillingClear, abortMultipart);
 router.patch('/:id/rename', verifyJWT, renameFile);
 
 module.exports = router;
