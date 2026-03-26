@@ -134,14 +134,14 @@ exports.loginUser = async (req, res, next) => {
 
     res.cookie('accessToken', accessToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: false,
       sameSite: 'strict',
       maxAge: 24 * 60 * 60 * 1000
     });
 
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: false,
       sameSite: 'strict',
       maxAge: 10 * 24 * 60 * 60 * 1000
     });
@@ -169,7 +169,7 @@ exports.logoutUser = async (req, res, next) => {
     // 2. Options MUST identically match how they were set in loginUser!
     const options = { 
       httpOnly: true, 
-      secure: process.env.NODE_ENV === 'production',
+      secure: false,
       sameSite: 'strict' // ✅ Added this to match the login options
     };
 
@@ -231,7 +231,7 @@ exports.loginWithRefreshToken = async (req, res, next) => {
     const accessToken = user.generateAccessToken();
     res.cookie('accessToken', accessToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: false,
       sameSite: 'strict',
       maxAge: 24 * 60 * 60 * 1000 // 1 day
     });

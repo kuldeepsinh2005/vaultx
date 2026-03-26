@@ -11,16 +11,20 @@ const logger = require('./utils/logger');
 const billingController = require('./controllers/billing.controller');
 // --- 1. Initialize Express & HTTP Server ---
 const app = express();
+app.set('trust proxy', 1);
 const server = http.createServer(app);
 
 // --- 2. Middleware ---
 app.use(cookieParser());
-app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:8080',
+const corsOptions = {
+  // Use the variable from AWS Parameter Store, or default to true
+  origin: process.env.CORS_ORIGIN === 'true' ? true : process.env.CORS_ORIGIN,
   credentials: true,
-  exposedHeaders: ['Content-Length', 'Content-Disposition']
-}));
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"]
+};
 
+app.use(cors(corsOptions));
 // Request logging
 app.use((req, res, next) => {
   logger.info(`${req.method} ${req.path}`);
