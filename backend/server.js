@@ -16,7 +16,7 @@ const server = http.createServer(app);
 // --- 2. Middleware ---
 app.use(cookieParser());
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:8686',
+  origin: process.env.FRONTEND_URL || 'http://localhost:8080',
   credentials: true,
   exposedHeaders: ['Content-Length', 'Content-Disposition']
 }));

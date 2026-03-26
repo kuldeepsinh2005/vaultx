@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  # 1. MongoDB Database
+  mongodb:
+    image: mongo:latest
+    container_name: vaultx-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+
+  # 2. Node.js Backend API
+  backend:
+    build: ./backend
+    container_name: vaultx-backend
+    ports:
+      - "5000:5000"
+    # 👇 This tells Docker to load every key from your backend's .env file!
+    env_file:
+      - ./backend/.env
+    environment:
+      # 👇 We ONLY override the MONGO_URI here so it connects to the Docker database, 
+      # not your localhost or Atlas database.
+      - MONGODB_URI=mongodb://mongodb:27017/vaultx 
+    depends_on:
+      - mongodb
+
+  # 3. Node.js Background Worker
+  worker:
+    build: ./worker
+    container_name: vaultx-worker
+    env_file:
+      - ./worker/.env
+    environment:
+      - MONGODB_URI=mongodb://mongodb:27017/vaultx 
+    depends_on:
+      - mongodb
+
+  # 4. React Frontend (NGINX)
+  # 4. React Frontend (NGINX)
+  frontend:
+    build: ./frontend
+    container_name: vaultx-frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+
+volumes:
+  mongo-data:

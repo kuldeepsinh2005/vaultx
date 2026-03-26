@@ -7,7 +7,7 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
-    port: 8686,     // 👈 your custom port
+    port: 8080,     // 👈 your custom port
     strictPort: true
   }
 
