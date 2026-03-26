@@ -2,13 +2,16 @@ services:
   mongodb:
     image: mongo:latest
     container_name: vaultx-mongo
+    # --- MODIFICATION: Enable Replica Set for Transactions ---
+    command: ["--replSet", "rs0", "--bind_ip_all"]
     volumes:
-      - /home/ubuntu/vaultx-data/mongodb:/data/db # Permanent AWS storage
+      - /home/ubuntu/vaultx-data/mongodb:/data/db
     networks:
       - vaultx-net
 
   backend:
     build: ./backend
+    container_name: vaultx-backend-1 # Fixed name for easier logging
     restart: always
     env_file: .env
     ports:
@@ -20,6 +23,7 @@ services:
 
   worker:
     build: ./worker
+    container_name: vaultx-worker-1
     restart: always
     env_file: .env
     depends_on:
@@ -28,7 +32,12 @@ services:
       - vaultx-net
 
   frontend:
-    build: ./frontend
+    build: 
+      context: ./frontend
+      # Pass the new Dynamic IP as a build argument if needed
+      args:
+        - VITE_API_URL=${VITE_API_URL} 
+    container_name: vaultx-frontend-1
     ports:
       - "80:80"
     networks:
