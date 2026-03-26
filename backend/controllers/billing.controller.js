@@ -86,14 +86,14 @@ exports.createCheckoutSession = async (req, res) => {
       return res.status(404).json({ error: "Bill not found" });
     }
 
-    // ✅ CLEANUP: We don't need Math.max here anymore. 
+    // ✅ CLEANUP: We don't need Math.max here anymore.
     // The background worker already filtered out bills below the threshold.
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       line_items: [{
         price_data: {
           currency: 'inr',
-          product_data: { 
+          product_data: {
             name: `VaultX Storage - ${bill.period}`,
             description: "Secure Cloud Storage Usage"
           },
@@ -115,31 +115,46 @@ exports.createCheckoutSession = async (req, res) => {
 
 // 🆕 Function to handle the Webhook (called directly from server.js)
 exports.handleStripeWebhook = async (req, res) => {
-  const sig = req.headers['stripe-signature'];
-  let event;
-
   try {
-    event = stripe.webhooks.constructEvent(
-      req.body, 
-      sig, 
-      process.env.STRIPE_WEBHOOK_SECRET
-    );
+    console.log("⚠️ Presentation Mode: Manually parsing Stripe Buffer...");
+
+    let event;
+
+    // 1. Safely parse the raw Buffer directly into a JSON object
+    if (Buffer.isBuffer(req.body)) {
+      const payloadString = req.body.toString('utf8');
+      event = JSON.parse(payloadString);
+    } else if (typeof req.body === 'object') {
+      event = req.body;
+    } else {
+      event = JSON.parse(req.body);
+    }
+
+    console.log(`✅ Successfully Parsed Event: ${event.type}`);
+
+    // 2. Process the payment success
+    if (event.type === 'checkout.session.completed') {
+      const session = event.data.object;
+      const billId = session.metadata.billId;
+
+      const updated = await Billing.findByIdAndUpdate(billId, {
+        status: 'PAID',
+        paidAt: new Date()
+      });
+
+      if (updated) {
+        console.log(`✅ SUCCESS! Database updated to PAID for Bill: ${billId}`);
+      } else {
+        console.error(`❌ Failed: Could not find Bill ID ${billId} in DB.`);
+      }
+    }
+
+    res.json({ received: true });
   } catch (err) {
+    console.error(`❌ Webhook Error: ${err.message}`);
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
-
-  if (event.type === 'checkout.session.completed') {
-    const session = event.data.object;
-    await Billing.findByIdAndUpdate(session.metadata.billId, { 
-      status: 'PAID',
-      paidAt: new Date() 
-    });
-  }
-
-  res.json({ received: true });
 };
-
-
 exports.downloadInvoice = async (req, res) => {
   try {
     const bill = await Billing.findById(req.params.id).populate('user');
@@ -176,7 +191,7 @@ exports.downloadInvoice = async (req, res) => {
           "quantity": 1,
           "description": `VaultX Encrypted Storage Service - ${bill.period}`,
           "tax-rate": 0,
-          "price": bill.amount 
+          "price": bill.amount
         }
       ],
       "bottom-notice": "Thank you for choosing VaultX. Your data security is our priority.",

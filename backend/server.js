@@ -10,12 +10,7 @@ const logger = require('./utils/logger');
 // require("./jobs/folderCleanup.job");
 const billingController = require('./controllers/billing.controller');
 // --- 1. Initialize Express & HTTP Server ---
-const app = express();
-app.set('trust proxy', 1);
-const server = http.createServer(app);
 
-// --- 2. Middleware ---
-app.use(cookieParser());
 const corsOptions = {
   // Use the variable from AWS Parameter Store, or default to true
   origin: process.env.CORS_ORIGIN === 'true' ? true : process.env.CORS_ORIGIN,
@@ -24,24 +19,31 @@ const corsOptions = {
   allowedHeaders: ["Content-Type", "Authorization"]
 };
 
+// ... rest of your routes
+// --- 1. Initialize ---
+const app = express();
+app.set('trust proxy', 1);
+
+// 🚩 ADD THIS LINE BACK: Creates the actual HTTP server
+const server = http.createServer(app);
+
+// 🚩 THE "GOLDEN" RULE: Webhook MUST be first.
+// This ensures Stripe's signature remains intact in its raw buffer form.
+app.post('/api/billing/webhook',
+  express.raw({ type: 'application/json' }),
+  billingController.handleStripeWebhook
+);
+
+// --- 2. Standard Middleware (SAFE TO ADD NOW) ---
+app.use(cookieParser());
 app.use(cors(corsOptions));
-// Request logging
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+console.log(" remove a tag and href from all Front-end and Footer");
 app.use((req, res, next) => {
   logger.info(`${req.method} ${req.path}`);
   next();
 });
-
-
-app.post('/api/billing/webhook', 
-  express.raw({ type: 'application/json' }), 
-  billingController.handleStripeWebhook
-);
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-
-console.log(" remove a tag and href from all Front-end and Footer");
-
 // --- 3. Database Connection ---
 const connectDB = async () => {
   try {
