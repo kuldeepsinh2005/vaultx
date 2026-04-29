@@ -13,8 +13,7 @@ const billingController = require('./controllers/billing.controller');
 
 const corsOptions = {
   // Use the variable from AWS Parameter Store, or default to true
-  origin: process.env.CORS_ORIGIN === 'true' ? true : process.env.CORS_ORIGIN,
-  credentials: true,
+  origin: process.env.FRONTEND_URL || 'http://localhost:8080',  credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"]
 };

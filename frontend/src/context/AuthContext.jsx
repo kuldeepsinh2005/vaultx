@@ -9,7 +9,7 @@ import { useKey } from "./KeyContext";
 // 1. Create Axios instance globally
 const api = axios.create({
   // No IP, no Port. Just the path.
-  baseURL: '/api', 
+  baseURL: import.meta.env.VITE_API_URL ,
   withCredentials: true, 
 });
 
